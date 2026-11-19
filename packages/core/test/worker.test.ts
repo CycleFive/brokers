@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryKV, cookieHeader, finishSignIn, startSignIn, type SignInDriver } from "broker-core/testing";
+import { DRIVER_REDIRECT, MemoryKV, cookieHeader, finishSignIn, startSignIn, type SignInDriver } from "broker-core/testing";
 import { VERSION } from "../src/version";
 import { createBroker, type BaseEnv } from "../src/worker";
 import type { SignInProvider } from "../src/signin";
@@ -14,8 +14,10 @@ interface TestEnv extends BaseEnv {
   ALLOWED: string;
   BROKEN?: string;
   PKCE?: string;
+  CTX_THROWS?: string;
 }
 let seen: { code: string; redirectUri: string; verifier?: string }[] = [];
+let upstream = { authorizeUrl: 0 };
 const signIn: SignInProvider<TestEnv, P> = {
   scope: "fake",
   label: "Fake",
@@ -23,7 +25,7 @@ const signIn: SignInProvider<TestEnv, P> = {
   configProblem: (e) => (e.BROKEN ? "BROKEN is set" : null),
   pkce: (e) => e.PKCE === "true",
   authorizeUrl: (_e, p) =>
-    `https://up.test/authorize?${new URLSearchParams({ state: p.state, redirect_uri: p.redirectUri, ...(p.challenge ? { code_challenge: p.challenge } : {}) })}`,
+    (upstream.authorizeUrl++, `https://up.test/authorize?${new URLSearchParams({ state: p.state, redirect_uri: p.redirectUri, ...(p.challenge ? { code_challenge: p.challenge } : {}) })}`),
   exchange: async (_e, p) => {
     seen.push(p);
     return p.code === "bad"
@@ -56,7 +58,8 @@ const broker = createBroker<TestEnv, P, P>({
       return { content: [{ type: "text", text: JSON.stringify(ctx, null, 2) }], isError: false } as any;
     },
   },
-  context: (_e, user) => {
+  context: (e, user) => {
+    if (e.CTX_THROWS) throw new Error(e.CTX_THROWS);
     contexts.push(user);
     return user;
   },
@@ -87,6 +90,7 @@ async function signedIn(e: TestEnv, code = "u1") {
 beforeEach(() => {
   logs.length = 0;
   seen = [];
+  upstream.authorizeUrl = 0;
   contexts = [];
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -122,6 +126,8 @@ describe("createBroker", () => {
     expect(await s.approve.text()).toContain("BROKEN is set");
     expect(s.approve.headers.get("location")).toBeNull();
     expect(logs.some((l) => l.includes('"config_error"'))).toBe(true);
+    expect(upstream.authorizeUrl).toBe(0);
+    expect(seen).toHaveLength(0);
   });
 
   it("sends a PKCE challenge only when the provider asks", async () => {
@@ -140,6 +146,8 @@ describe("createBroker", () => {
     const { cb } = await signedIn(env(), "u2");
     expect(cb.status).toBe(403);
     expect(await cb.text()).toContain("Fake account u2 is not allowed.");
+    expect(cb.headers.get("location")).toBeNull();
+    expect(logs.some((l) => l.includes('"sign_in_refused"'))).toBe(true);
   });
 
   it("sends a cancelled sign-in back as access_denied", async () => {
@@ -151,6 +159,7 @@ describe("createBroker", () => {
     const loc = cb.headers.get("location")!;
     expect(loc.startsWith("https://claude.ai/api/mcp/auth_callback")).toBe(true);
     expect(new URL(loc).searchParams.get("error")).toBe("access_denied");
+    expect(new URL(loc).searchParams.get("error_description")).toBe("Fake sign-in was cancelled");
   });
 
   it("shows the provider's message when the exchange fails", async () => {
@@ -197,5 +206,80 @@ describe("createBroker", () => {
     });
     expect(r.status).toBe(201);
     expect(logs.map((l) => JSON.parse(l)).some((l) => l.event === "oauth_endpoint" && l.method === "POST" && l.path === "/oauth/register" && l.status === 201)).toBe(true);
+  });
+
+  it("answers an unregistered client_id with a 400 page and logs authorize_error", async () => {
+    const q = new URLSearchParams({ response_type: "code", client_id: "never-registered", redirect_uri: DRIVER_REDIRECT, scope: "fake", state: "s", resource: `${BASE}/mcp` });
+    const r = await driver(env()).call(`/authorize?${q}`);
+    expect(r.status).toBe(400);
+    expect(r.headers.get("content-type")).toContain("text/html");
+    expect(logs.map((l) => JSON.parse(l)).some((l) => l.event === "authorize_error")).toBe(true);
+  });
+
+  it("answers an unreachable client metadata document with 502 naming DISABLE_CIMD", async () => {
+    const url = "https://client.test/metadata.json";
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      fetched.push(new Request(input).url);
+      throw new Error("network down");
+    });
+    const q = new URLSearchParams({ response_type: "code", client_id: url, redirect_uri: DRIVER_REDIRECT, scope: "fake", state: "s", resource: `${BASE}/mcp` });
+    const r = await driver(env()).call(`/authorize?${q}`);
+    expect(fetched).toContain(url);
+    expect(r.status).toBe(502);
+    expect(await r.text()).toContain("DISABLE_CIMD");
+    expect(logs.map((l) => JSON.parse(l)).some((l) => l.event === "cimd_fetch_failed" && l.url === url)).toBe(true);
+  });
+
+  it("a denied consent goes back to the client and never reaches the provider", async () => {
+    const d = driver(env());
+    const s = await startSignIn(d);
+    const q = new URLSearchParams({
+      response_type: "code", client_id: s.client_id, redirect_uri: DRIVER_REDIRECT, scope: "fake offline_access", state: "st9",
+      code_challenge: "x".repeat(43), code_challenge_method: "S256", resource: `${BASE}/mcp`,
+    });
+    const consent = await d.call(`/authorize?${q}`);
+    const handle = (await consent.text()).match(/name="handle" value="([^"]+)"/)![1];
+    upstream.authorizeUrl = 0;
+    const r = await d.call("/authorize", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: cookieHeader(consent) },
+      body: new URLSearchParams({ handle, decision: "deny" }).toString(),
+    });
+    expect(r.status).toBe(302);
+    const loc = new URL(r.headers.get("location")!);
+    expect(loc.origin + loc.pathname).toBe(DRIVER_REDIRECT);
+    expect(loc.searchParams.get("error")).toBe("access_denied");
+    expect(upstream.authorizeUrl).toBe(0);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("PUT /authorize is 405", async () => {
+    expect((await driver(env()).call("/authorize", { method: "PUT" })).status).toBe(405);
+  });
+
+  it("passes ALLOWED_ORIGINS to the MCP endpoint", async () => {
+    const e = env({ ALLOWED_ORIGINS: "https://claude.ai" });
+    const { token } = await signedIn(e);
+    const post = (origin: string) =>
+      broker.fetch(
+        new Request(BASE + "/mcp", {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", origin },
+          body: JSON.stringify(whoami),
+        }),
+        e,
+        ctx,
+      );
+    expect((await post("https://evil.example")).status).toBe(403);
+    expect((await post("https://claude.ai")).status).toBe(200);
+  });
+
+  it("reports a throwing context as a JSON-RPC error", async () => {
+    const e = env();
+    const { token } = await signedIn(e);
+    e.CTX_THROWS = "X is not set";
+    const r = (await (await mcp(e, token!, whoami)).json()) as any;
+    expect(r.error.message).toBe("Server not configured: X is not set");
   });
 });

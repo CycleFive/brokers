@@ -84,9 +84,11 @@ describe("Feed failures", () => {
   it("keeps the upstream status but not the upstream text when Discord fails", async () => {
     const fetchImpl = (async () => jsonRes({ message: "Missing Access", code: 50001 }, 403)) as typeof fetch;
     const tc = toolContext(fetchImpl);
+    log.mockClear();
     const res = await handleFeed(new Request("https://feed/identity"), env, { waitUntil() {} }, { dc: tc.dc, scope: tc.scope });
     expect(res.status).toBe(403);
     expect(await res.text()).toBe('{"error":"discord error"}');
+    expect(log.mock.calls.map((c) => String(c[0])).some((l) => l.includes("Missing Access"))).toBe(true);
   });
 
   it("does not echo an unexpected failure", async () => {
