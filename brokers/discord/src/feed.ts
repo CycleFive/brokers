@@ -9,7 +9,7 @@
 //   POST /signin          Discord sign-in code exchange (the client secret stays here)
 
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { exchangeDiscordCode, userAgent } from "./auth";
+import { signIn, userAgent } from "./signin";
 import { DiscordClient, DiscordError, normalizePath } from "./discord/client";
 import { Scope, ScopeError } from "./discord/scope";
 import type { Env } from "./env";
@@ -78,8 +78,8 @@ async function route(request: Request, pathname: string, query: URLSearchParams,
     if (typeof body?.code !== "string" || !body.code || typeof body.redirect_uri !== "string" || !body.redirect_uri) {
       return fail(400, "code and redirect_uri are required");
     }
-    const id = await exchangeDiscordCode(env, body.code, body.redirect_uri, undefined, ctx, deps.fetchImpl);
-    return id.ok ? json({ id: id.id, username: id.username }) : fail(id.status, id.message);
+    const id = await signIn.exchange(env, { code: body.code, redirectUri: body.redirect_uri }, ctx, deps.fetchImpl);
+    return id.ok ? json({ id: id.props.id, username: id.props.username }) : fail(id.status, id.message);
   }
 
   return fail(404, "not found");

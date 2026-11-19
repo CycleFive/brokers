@@ -112,6 +112,17 @@ async function signIn(e: Env, withResource = true) {
   return { cb, client_id, verifier, challenge: dc.searchParams.get("code_challenge") };
 }
 
+describe("OAuth metadata", () => {
+  it("advertises the same scopes and endpoints as 0.2.0", async () => {
+    const m = (await (await call(env(), "/.well-known/oauth-authorization-server")).json()) as Record<string, any>;
+    expect(m.issuer).toBe(BASE);
+    expect(m.scopes_supported).toEqual(["discord", "offline_access"]);
+    expect(m.token_endpoint).toBe(`${BASE}/oauth/token`);
+    expect(m.registration_endpoint).toBe(`${BASE}/oauth/register`);
+    expect(m.authorization_endpoint).toBe(`${BASE}/authorize`);
+  });
+});
+
 describe("full sign-in and MCP flow", () => {
   it.each([true, false])("issues a token to an allowlisted user and serves MCP with it (resource param: %s)", async (withResource) => {
     const e = env();
