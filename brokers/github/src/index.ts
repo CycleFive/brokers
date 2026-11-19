@@ -12,15 +12,14 @@ import {
   insufficientScope,
   type OAuthResourceContext,
 } from "@cloudflare/workers-oauth-provider";
-import { AuthProps, SCOPE, handleAuthorize, handleCallback, isAllowed, publicUrl } from "./auth";
+import { VERSION, publicUrl, required } from "broker-core";
+import { AuthProps, SCOPE, handleAuthorize, handleCallback, isAllowed } from "./auth";
 import type { Env } from "./env";
 import { tokens } from "./github/app";
 import { GitHubClient } from "./github/client";
 import { handleMcp } from "./mcp";
 
 export { Feed } from "./feed";
-
-const VERSION = "0.2.0";
 
 const INSTRUCTIONS =
   "Tools act as a GitHub App installation, with whatever permissions the app was granted (installation_info shows them). " +
@@ -87,12 +86,6 @@ function getRoles(env: Env): Roles {
 
   roles = { url, as, rs };
   return roles;
-}
-
-function required(env: Env, key: keyof Env): string {
-  const v = env[key];
-  if (typeof v !== "string" || !v) throw new Error(`${key} is not set`);
-  return v;
 }
 
 export default {

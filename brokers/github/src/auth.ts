@@ -8,7 +8,7 @@ import {
   type ConsentDescription,
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
-import { base64url } from "./github/app";
+import { base64url, publicUrl } from "broker-core";
 import type { Env } from "./env";
 
 export const SCOPE = "github";
@@ -213,9 +213,4 @@ export async function handleCallback(
   });
   console.log(JSON.stringify({ event: "sign_in", login: user.login, id: user.id, client: authReq.clientId }));
   return redirect(redirectTo, headers);
-}
-
-export function publicUrl(env: Env): string {
-  if (!env.PUBLIC_URL) throw new Error("PUBLIC_URL is not set");
-  return env.PUBLIC_URL.replace(/\/+$/, "");
 }

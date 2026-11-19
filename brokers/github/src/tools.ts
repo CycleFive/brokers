@@ -1,38 +1,13 @@
 // MCP tool definitions. Each tool is a small wrapper over the GitHub REST API, plus
 // github_request, a passthrough for everything the named tools don't cover.
 
+import { ToolInputError, truncate, validateArgs, type ToolDef, type ToolResult } from "broker-core";
 import { GitHubClient, GitHubError } from "./github/client";
 
 export interface ToolContext {
   gh: GitHubClient;
   defaultOwner?: string;
   user: { login: string; id: string };
-}
-
-type JsonSchema = {
-  type: "object";
-  properties: Record<string, any>;
-  required?: string[];
-  additionalProperties?: boolean;
-};
-
-export interface ToolDef {
-  name: string;
-  title: string;
-  description: string;
-  inputSchema: JsonSchema;
-  annotations: {
-    readOnlyHint?: boolean;
-    destructiveHint?: boolean;
-    idempotentHint?: boolean;
-    openWorldHint?: boolean;
-  };
-  run(args: Record<string, any>, ctx: ToolContext): Promise<unknown>;
-}
-
-export interface ToolResult {
-  content: { type: "text"; text: string }[];
-  isError: boolean;
 }
 
 const DEFAULT_MAX_CHARS = 200_000;
@@ -65,13 +40,6 @@ function encodePath(p: string): string {
     .join("/");
 }
 
-export class ToolInputError extends Error {}
-
-function truncate(text: string, max: number): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max)}\n\n[truncated: ${text.length - max} more characters; raise max_chars or narrow the request]`;
-}
-
 async function defaultBranch(gh: GitHubClient, rp: string): Promise<string> {
   const repo = await gh.call<{ default_branch: string }>({ path: rp });
   return repo.default_branch;
@@ -81,36 +49,6 @@ async function resolveSha(gh: GitHubClient, rp: string, ref: string): Promise<st
   if (/^[0-9a-f]{40}$/i.test(ref)) return ref;
   const c = await gh.call<{ sha: string }>({ path: `${rp}/commits/${encodeURIComponent(ref)}` });
   return c.sha;
-}
-
-/** Minimal JSON-schema check: required keys, primitive types, enums. Unknown keys are rejected. */
-export function validateArgs(schema: JsonSchema, args: unknown): string | null {
-  if (args === undefined || args === null) args = {};
-  if (typeof args !== "object" || Array.isArray(args)) return "arguments must be an object";
-  const a = args as Record<string, unknown>;
-  for (const r of schema.required ?? []) {
-    if (a[r] === undefined || a[r] === null) return `missing required argument "${r}"`;
-  }
-  for (const [k, v] of Object.entries(a)) {
-    const prop = schema.properties[k];
-    if (!prop) {
-      if (schema.additionalProperties === false) return `unknown argument "${k}"`;
-      continue;
-    }
-    if (v === undefined || v === null) continue;
-    const t = prop.type;
-    const ok =
-      t === undefined ||
-      (t === "string" && typeof v === "string") ||
-      (t === "integer" && Number.isInteger(v)) ||
-      (t === "number" && typeof v === "number") ||
-      (t === "boolean" && typeof v === "boolean") ||
-      (t === "array" && Array.isArray(v)) ||
-      (t === "object" && typeof v === "object" && !Array.isArray(v));
-    if (!ok) return `argument "${k}" must be ${t}`;
-    if (prop.enum && !prop.enum.includes(v)) return `argument "${k}" must be one of ${prop.enum.join(", ")}`;
-  }
-  return null;
 }
 
 const repoProp = {
@@ -124,7 +62,7 @@ const pageProps = {
 
 // ---------- tools ----------
 
-export const TOOLS: ToolDef[] = [
+export const TOOLS: ToolDef<ToolContext>[] = [
   {
     name: "installation_info",
     title: "Installation info",

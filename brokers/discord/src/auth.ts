@@ -10,6 +10,7 @@ import {
   type ConsentDescription,
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
+import { VERSION, base64url, publicUrl } from "broker-core";
 import type { Env } from "./env";
 
 export const SCOPE = "discord";
@@ -37,12 +38,6 @@ export function parseAllowlist(raw: string | undefined): { ids: Set<string>; bad
 
 export function isAllowed(raw: string | undefined, user: { id: string | number }): boolean {
   return parseAllowlist(raw).ids.has(String(user.id));
-}
-
-export function base64url(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /** Catch the usual configuration mix-ups before sending anyone to Discord, which answers them with an unhelpful page. */
@@ -278,13 +273,6 @@ export async function exchangeDiscordCode(
   return { ok: true, id: user.id, username: user.username };
 }
 
-export const VERSION = "0.2.0";
-
 export function userAgent(env: Env): string {
   return `DiscordBot (${env.PUBLIC_URL || "https://github.com/cycle-five"}, ${VERSION}) discord-broker`;
-}
-
-export function publicUrl(env: Env): string {
-  if (!env.PUBLIC_URL) throw new Error("PUBLIC_URL is not set");
-  return env.PUBLIC_URL.replace(/\/+$/, "");
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { normalizePath } from "../src/github/client";
-import { TOOLS, callTool, splitRepo, validateArgs } from "../src/tools";
+import { TOOLS, callTool, splitRepo } from "../src/tools";
 import { SHA_MAIN, fakeGitHub, jsonRes, toolContext } from "./fake-github";
 
 vi.spyOn(console, "log").mockImplementation(() => {});
@@ -14,15 +14,6 @@ describe("argument handling", () => {
     expect(() => splitRepo("b")).toThrow();
     expect(() => splitRepo("a/b/c")).toThrow();
     expect(() => splitRepo("../b", "a")).toThrow();
-  });
-
-  it("validates required keys, types, enums and unknown keys", () => {
-    const s = TOOLS.find((t) => t.name === "list_prs")!.inputSchema;
-    expect(validateArgs(s, {})).toMatch(/missing required argument "repo"/);
-    expect(validateArgs(s, { repo: 1 })).toMatch(/must be string/);
-    expect(validateArgs(s, { repo: "a/b", state: "merged" })).toMatch(/one of/);
-    expect(validateArgs(s, { repo: "a/b", nope: 1 })).toMatch(/unknown argument/);
-    expect(validateArgs(s, { repo: "a/b", state: "all", per_page: 5 })).toBeNull();
   });
 
   it("keeps github_request on the API host", () => {

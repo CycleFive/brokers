@@ -12,7 +12,8 @@ import {
   insufficientScope,
   type OAuthResourceContext,
 } from "@cloudflare/workers-oauth-provider";
-import { AuthProps, SCOPE, VERSION, handleAuthorize, handleCallback, isAllowed, publicUrl, userAgent } from "./auth";
+import { VERSION, publicUrl, required } from "broker-core";
+import { AuthProps, SCOPE, handleAuthorize, handleCallback, isAllowed, userAgent } from "./auth";
 import { DiscordClient } from "./discord/client";
 import { Scope } from "./discord/scope";
 import type { Env } from "./env";
@@ -81,12 +82,6 @@ function getRoles(env: Env): Roles {
 
   roles = { key, as, rs };
   return roles;
-}
-
-function required(env: Env, key: keyof Env): string {
-  const v = env[key];
-  if (typeof v !== "string" || !v) throw new Error(`${key} is not set`);
-  return v;
 }
 
 export default {

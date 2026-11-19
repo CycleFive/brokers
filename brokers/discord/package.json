@@ -1,6 +1,6 @@
 {
   "name": "discord-broker",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "description": "Remote MCP server on Cloudflare Workers that brokers a Discord bot without exposing its token",
@@ -13,6 +13,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "broker-core": "*",
     "@cloudflare/workers-oauth-provider": "1.2.4"
   }
 }
