@@ -1,7 +1,7 @@
 // The real MCP SDK client against this broker's real tools. Protocol cases live in broker-core.
 
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { describe, expect, it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
 import { handleMcp } from "broker-core";
 import { TOOLS, callTool } from "../src/tools";
 import { fakeGitHub, toolContext } from "./fake-github";

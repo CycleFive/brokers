@@ -34,6 +34,18 @@ describe("argument handling", () => {
   });
 });
 
+describe("GitHub's own schemas", () => {
+  it("list_prs rejects a missing repo and an unknown argument", async () => {
+    const ctx = toolContext(fakeGitHub().fetchImpl);
+    const missing = await callTool("list_prs", {}, ctx);
+    expect(missing!.isError).toBe(true);
+    expect(text(missing)).toBe('Invalid arguments: missing required argument "repo"');
+    const extra = await callTool("list_prs", { repo: "o/r", bogus: 1 }, ctx);
+    expect(extra!.isError).toBe(true);
+    expect(text(extra)).toBe('Invalid arguments: unknown argument "bogus"');
+  });
+});
+
 describe("tools against a fake GitHub", () => {
   it("installation_info reports permissions, never the token", async () => {
     const gh = fakeGitHub();

@@ -196,6 +196,13 @@ describe("transport edges", () => {
     expect(((await res.json()) as any).error.code).toBe(-32602);
   });
 
+  it("a throwing tool comes back as an isError result", async () => {
+    const res = await post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "boom", arguments: {} } });
+    const b: any = await res.json();
+    expect(b.result.isError).toBe(true);
+    expect(b.result.content[0].text).toBe("boom");
+  });
+
   it("a foreign Origin is 403 when an allowlist is set", async () => {
     expect((await post({ jsonrpc: "2.0", id: 1, method: "ping" }, { origin: "https://evil.example" })).status).toBe(403);
     expect((await post({ jsonrpc: "2.0", id: 1, method: "ping" }, { origin: "https://claude.ai" })).status).toBe(200);
