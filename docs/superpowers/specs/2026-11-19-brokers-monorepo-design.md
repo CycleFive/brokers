@@ -111,9 +111,9 @@ Each item is used by both brokers today.
 | `pages` | `escapeHtml`, the page shell (CSP, `no-store`), `consentPage`, `errorPage` | both `auth.ts` |
 | `signin` | `SignInProvider`, `handleAuthorize`, `handleCallback`, PKCE helpers | both `auth.ts` |
 | `worker` | `createBroker(config)` returning the Worker's `fetch` handler: OAuth roles, routes, per-request allowlist re-check, top-level error catch, OAuth endpoint logging | both `index.ts` |
-| `feed` | JSON answer helper and the audit-line wrapper only | both `feed.ts` |
+| `feed` | JSON answer helper and the audit-line wrapper only. The wrapper catches an exception, asks the broker for the status and generic text to answer with, and keeps the exception's message for the log line. | both `feed.ts` |
 | `util` | `publicUrl`, `required`, `base64url`, `VERSION` | both |
-| test support | `MemoryKV`, the `cloudflare:workers` stub, the shared vitest settings | both `test/` |
+| test support | `MemoryKV`, the `cloudflare:workers` stub, the shared vitest settings. The brokers' flow tests keep their own sign-in driver for now, so they stay untouched as the safety net. | both `test/` |
 
 ### The sign-in object
 
@@ -131,7 +131,7 @@ interface SignInProvider<E, P> {
            ctx: { waitUntil(p: Promise<unknown>): void }, fetchImpl: typeof fetch,
   ): Promise<{ ok: true; userId: string; props: P } | { ok: false; status: number; message: string }>;
   isAllowed(env: E, props: P): boolean;   // run at sign-in and again on every MCP request
-  describe(props: P): string;       // for the refusal page and log lines
+  refusal(props: P): string;        // the refusal page's sentence for an account that is not allowed
 }
 ```
 
