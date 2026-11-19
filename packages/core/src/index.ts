@@ -4,3 +4,8 @@ export { ToolInputError, truncate, validateArgs } from "./tools";
 export type { JsonSchema, ToolDef, ToolResult } from "./tools";
 export { handleMcp, MODERN_VERSION, LEGACY_VERSIONS, SUPPORTED_VERSIONS } from "./mcp";
 export type { McpOptions, McpTools } from "./mcp";
+export { escapeHtml, page, consentPage, errorPage } from "./pages";
+export { handleAuthorize, handleCallback } from "./signin";
+export type { Exchanged, SignInProvider, WaitUntil } from "./signin";
+export { createBroker } from "./worker";
+export type { BaseEnv, BrokerConfig } from "./worker";
