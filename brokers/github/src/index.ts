@@ -12,12 +12,12 @@ import {
   insufficientScope,
   type OAuthResourceContext,
 } from "@cloudflare/workers-oauth-provider";
-import { VERSION, publicUrl, required } from "broker-core";
+import { VERSION, handleMcp, publicUrl, required } from "broker-core";
 import { AuthProps, SCOPE, handleAuthorize, handleCallback, isAllowed } from "./auth";
 import type { Env } from "./env";
 import { tokens } from "./github/app";
 import { GitHubClient } from "./github/client";
-import { handleMcp } from "./mcp";
+import { TOOLS, callTool } from "./tools";
 
 export { Feed } from "./feed";
 
@@ -62,6 +62,7 @@ function getRoles(env: Env): Roles {
         }
         return handleMcp(
           request,
+          { list: TOOLS, call: callTool },
           () => ({
             gh: new GitHubClient(
               {
