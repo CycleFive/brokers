@@ -9,6 +9,7 @@
 //   POST /signin          Discord sign-in code exchange (the client secret stays here)
 
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { auditedFeed, json } from "broker-core";
 import { signIn, userAgent } from "./signin";
 import { DiscordClient, DiscordError, normalizePath } from "./discord/client";
 import { Scope, ScopeError } from "./discord/scope";
@@ -24,24 +25,15 @@ interface FeedDeps {
 
 type Ctx = { waitUntil(p: Promise<unknown>): void };
 
-function json(body: unknown, status = 200): Response {
-  if (status === 204 || status === 205 || status === 304) return new Response(null, { status });
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-}
-
 const fail = (status: number, error: string) => json({ error }, status);
 
-export async function handleFeed(request: Request, env: Env, ctx: Ctx, deps: FeedDeps): Promise<Response> {
-  const started = Date.now();
+// A caught exception never reaches the body; its message goes to the audit line only.
+const failure = (e: unknown) =>
+  e instanceof DiscordError ? { status: e.status, error: "discord error" } : { status: 500, error: "internal error" };
+
+export function handleFeed(request: Request, env: Env, ctx: Ctx, deps: FeedDeps): Promise<Response> {
   const { pathname, searchParams } = new URL(request.url);
-  let res: Response;
-  try {
-    res = await route(request, pathname, searchParams, env, ctx, deps);
-  } catch (e) {
-    res = e instanceof DiscordError ? fail(e.status, e.message) : fail(500, (e as Error)?.message ?? "internal error");
-  }
-  console.log(JSON.stringify({ event: "feed", path: pathname, status: res.status, ms: Date.now() - started }));
-  return res;
+  return auditedFeed(request, () => route(request, pathname, searchParams, env, ctx, deps), failure);
 }
 
 async function route(request: Request, pathname: string, query: URLSearchParams, env: Env, ctx: Ctx, deps: FeedDeps): Promise<Response> {
@@ -88,15 +80,18 @@ async function route(request: Request, pathname: string, query: URLSearchParams,
 export class Feed extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
     const { env } = this;
-    try {
-      if (!env.DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN is not set");
-      return await handleFeed(request, env, this.ctx, {
-        dc: new DiscordClient({ token: env.DISCORD_BOT_TOKEN, userAgent: userAgent(env) }, limiter),
-        scope: new Scope(env.DISCORD_ALLOWED_GUILDS, env.DISCORD_ALLOWED_CHANNELS, channels),
-      });
-    } catch (e) {
-      console.log(JSON.stringify({ event: "feed", path: new URL(request.url).pathname, status: 500, message: (e as Error)?.message }));
-      return fail(500, (e as Error)?.message ?? "internal error");
-    }
+    const { pathname, searchParams } = new URL(request.url);
+    return auditedFeed(
+      request,
+      async () => {
+        if (!env.DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN is not set");
+        const deps: FeedDeps = {
+          dc: new DiscordClient({ token: env.DISCORD_BOT_TOKEN, userAgent: userAgent(env) }, limiter),
+          scope: new Scope(env.DISCORD_ALLOWED_GUILDS, env.DISCORD_ALLOWED_CHANNELS, channels),
+        };
+        return route(request, pathname, searchParams, env, this.ctx, deps);
+      },
+      failure,
+    );
   }
 }
