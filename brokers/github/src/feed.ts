@@ -6,6 +6,7 @@
 //   GET /api/repos/...  a GET passed to GitHub as the installation, answer unchanged
 
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { auditedFeed, json } from "broker-core";
 import type { Env } from "./env";
 import { importAppKey, signAppJwt, tokens } from "./github/app";
 import { GitHubClient, normalizePath } from "./github/client";
@@ -24,10 +25,6 @@ interface Identity {
 
 // The app's identity never changes; keep it for the isolate's life.
 let identity: Identity | undefined;
-
-function json(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
-}
 
 async function getIdentity(deps: FeedDeps): Promise<Identity> {
   if (identity) return identity;
@@ -52,7 +49,7 @@ async function route(request: Request, deps: FeedDeps): Promise<Response> {
 
   if (path === "/identity") {
     if (request.method !== "GET") return json({ error: "feed is read-only" }, 405);
-    return json(await getIdentity(deps), 200);
+    return json(await getIdentity(deps));
   }
 
   if (path === "/api" || path.startsWith("/api/")) {
@@ -79,17 +76,9 @@ async function route(request: Request, deps: FeedDeps): Promise<Response> {
   return json({ error: "not found" }, 404);
 }
 
-export async function handleFeed(request: Request, _env: Env, deps: FeedDeps): Promise<Response> {
-  const started = Date.now();
-  let res: Response;
-  try {
-    res = await route(request, deps);
-  } catch {
-    // Never echo the error: it may carry upstream detail.
-    res = json({ error: "upstream unavailable" }, 502);
-  }
-  console.log(JSON.stringify({ event: "feed", method: request.method, path: new URL(request.url).pathname, status: res.status, ms: Date.now() - started }));
-  return res;
+export function handleFeed(request: Request, _env: Env, deps: FeedDeps): Promise<Response> {
+  // Never echo the error: it may carry upstream detail.
+  return auditedFeed(request, () => route(request, deps), () => ({ status: 502, error: "upstream unavailable" }));
 }
 
 let appKey: { pem: string; key: Promise<CryptoKey> } | undefined;

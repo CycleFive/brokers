@@ -5,7 +5,7 @@ import type { Env } from "../src/env";
 import { resetBotCache } from "../src/tools";
 import { BOT_ID, C1, C2, CAT, fakeDiscord, jsonRes, toolContext } from "./fake-discord";
 
-vi.spyOn(console, "log").mockImplementation(() => {});
+const log = vi.spyOn(console, "log").mockImplementation(() => {});
 beforeEach(() => resetBotCache());
 
 const env = { PUBLIC_URL: "https://broker.test", DISCORD_CLIENT_ID: "123456789012345678", DISCORD_CLIENT_SECRET: "shh" } as Env;
@@ -77,6 +77,36 @@ describe("Feed", () => {
     const res = await feed("/api/channels/399999999999999999");
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ message: "Unknown Channel", code: 10003 });
+  });
+});
+
+describe("Feed failures", () => {
+  it("keeps the upstream status but not the upstream text when Discord fails", async () => {
+    const fetchImpl = (async () => jsonRes({ message: "Missing Access", code: 50001 }, 403)) as typeof fetch;
+    const tc = toolContext(fetchImpl);
+    const res = await handleFeed(new Request("https://feed/identity"), env, { waitUntil() {} }, { dc: tc.dc, scope: tc.scope });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe('{"error":"discord error"}');
+  });
+
+  it("does not echo an unexpected failure", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("boom detail");
+    }) as typeof fetch;
+    const tc = toolContext(fetchImpl);
+    log.mockClear();
+    const res = await handleFeed(new Request("https://feed/identity"), env, { waitUntil() {} }, { dc: tc.dc, scope: tc.scope });
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe('{"error":"internal error"}');
+    expect(JSON.parse(log.mock.calls[0][0] as string).message).toContain("boom detail");
+  });
+
+  it("includes the method in the audit line", async () => {
+    const { feed } = setup();
+    log.mockClear();
+    await feed("/identity");
+    const line = JSON.parse(log.mock.calls[0][0] as string);
+    expect(Object.keys(line)).toEqual(["event", "method", "path", "status", "ms"]);
   });
 });
 

@@ -9,3 +9,4 @@ export { handleAuthorize, handleCallback } from "./signin";
 export type { Exchanged, SignInProvider, WaitUntil } from "./signin";
 export { createBroker } from "./worker";
 export type { BaseEnv, BrokerConfig } from "./worker";
+export { json, auditedFeed } from "./feed";
