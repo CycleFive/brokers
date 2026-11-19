@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DISCORD_ME, DISCORD_REVOKE, DISCORD_TOKEN } from "../src/auth";
+import { DISCORD_ME, DISCORD_REVOKE, DISCORD_TOKEN } from "../src/signin";
 import { handleFeed } from "../src/feed";
 import type { Env } from "../src/env";
 import { resetBotCache } from "../src/tools";
