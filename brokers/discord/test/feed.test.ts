@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DISCORD_ME, DISCORD_REVOKE, DISCORD_TOKEN } from "../src/signin";
-import { handleFeed } from "../src/feed";
+import { Feed, handleFeed } from "../src/feed";
 import type { Env } from "../src/env";
 import { resetBotCache } from "../src/tools";
 import { BOT_ID, C1, C2, CAT, fakeDiscord, jsonRes, toolContext } from "./fake-discord";
@@ -99,6 +99,15 @@ describe("Feed failures", () => {
     expect(res.status).toBe(500);
     expect(await res.text()).toBe('{"error":"internal error"}');
     expect(JSON.parse(log.mock.calls[0][0] as string).message).toContain("boom detail");
+  });
+
+  it("answers a missing bot token generically and logs the reason", async () => {
+    log.mockClear();
+    const feed = new Feed({ waitUntil() {} } as never, { PUBLIC_URL: "https://broker.test" } as never);
+    const res = await feed.fetch(new Request("https://feed/identity"));
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe('{"error":"internal error"}');
+    expect(JSON.parse(log.mock.calls[0][0] as string).message).toBe("DISCORD_BOT_TOKEN is not set");
   });
 
   it("includes the method in the audit line", async () => {

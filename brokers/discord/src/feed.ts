@@ -31,9 +31,10 @@ const fail = (status: number, error: string) => json({ error }, status);
 const failure = (e: unknown) =>
   e instanceof DiscordError ? { status: e.status, error: "discord error" } : { status: 500, error: "internal error" };
 
-export function handleFeed(request: Request, env: Env, ctx: Ctx, deps: FeedDeps): Promise<Response> {
+// `deps` may be a thunk: a throw while building it is answered like any other exception.
+export function handleFeed(request: Request, env: Env, ctx: Ctx, deps: FeedDeps | (() => FeedDeps)): Promise<Response> {
   const { pathname, searchParams } = new URL(request.url);
-  return auditedFeed(request, () => route(request, pathname, searchParams, env, ctx, deps), failure);
+  return auditedFeed(request, () => route(request, pathname, searchParams, env, ctx, typeof deps === "function" ? deps() : deps), failure);
 }
 
 async function route(request: Request, pathname: string, query: URLSearchParams, env: Env, ctx: Ctx, deps: FeedDeps): Promise<Response> {
@@ -80,18 +81,12 @@ async function route(request: Request, pathname: string, query: URLSearchParams,
 export class Feed extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
     const { env } = this;
-    const { pathname, searchParams } = new URL(request.url);
-    return auditedFeed(
-      request,
-      async () => {
-        if (!env.DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN is not set");
-        const deps: FeedDeps = {
-          dc: new DiscordClient({ token: env.DISCORD_BOT_TOKEN, userAgent: userAgent(env) }, limiter),
-          scope: new Scope(env.DISCORD_ALLOWED_GUILDS, env.DISCORD_ALLOWED_CHANNELS, channels),
-        };
-        return route(request, pathname, searchParams, env, this.ctx, deps);
-      },
-      failure,
-    );
+    return handleFeed(request, env, this.ctx, () => {
+      if (!env.DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN is not set");
+      return {
+        dc: new DiscordClient({ token: env.DISCORD_BOT_TOKEN, userAgent: userAgent(env) }, limiter),
+        scope: new Scope(env.DISCORD_ALLOWED_GUILDS, env.DISCORD_ALLOWED_CHANNELS, channels),
+      };
+    });
   }
 }
