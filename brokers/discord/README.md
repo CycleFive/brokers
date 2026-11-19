@@ -153,7 +153,9 @@ Copy User ID. Server and channel IDs come the same way, for the optional allowli
 ### 2. Configure
 
 ```sh
-npm install
+git clone https://github.com/CycleFive/brokers && cd brokers
+npm install          # once, at the repo root
+cd brokers/discord
 cp wrangler.example.jsonc wrangler.jsonc
 npx wrangler login
 npx wrangler kv namespace create OAUTH_KV

@@ -1,7 +1,7 @@
 // Copy to wrangler.jsonc (git-ignored) and fill in your own values:
 //   cp wrangler.example.jsonc wrangler.jsonc
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
+  "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "github-broker",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",

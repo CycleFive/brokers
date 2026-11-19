@@ -83,7 +83,9 @@ too but can be re-registered by someone else after a rename).
 ### 2. Configure
 
 ```sh
-npm install
+git clone https://github.com/CycleFive/brokers && cd brokers
+npm install          # once, at the repo root
+cd brokers/github
 cp wrangler.example.jsonc wrangler.jsonc
 npx wrangler login
 npx wrangler kv namespace create OAUTH_KV
