@@ -6,7 +6,7 @@
 //     MCP-Protocol-Version header; results carry resultType and serverInfo in _meta.
 //   - 2025-11-25 / 2025-06-18 / 2025-03-26: initialize + notifications/initialized.
 
-import { TOOLS, ToolContext, callTool } from "./tools";
+import type { ToolDef, ToolResult } from "./tools";
 
 export const MODERN_VERSION = "2026-07-28";
 export const LEGACY_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
@@ -34,6 +34,12 @@ export interface McpOptions {
   listTtlMs?: number;
 }
 
+export interface McpTools<C> {
+  list: readonly ToolDef<C>[];
+  /** null = unknown tool */
+  call(name: string, args: unknown, ctx: C): Promise<ToolResult | null>;
+}
+
 type Id = string | number | null;
 
 function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
@@ -52,9 +58,10 @@ function isNewer(v: string): boolean {
   return v >= MODERN_VERSION;
 }
 
-export async function handleMcp(
+export async function handleMcp<C>(
   request: Request,
-  getContext: () => ToolContext | Promise<ToolContext>,
+  tools: McpTools<C>,
+  getContext: () => C | Promise<C>,
   opts: McpOptions,
 ): Promise<Response> {
   const origin = request.headers.get("origin");
@@ -141,7 +148,7 @@ export async function handleMcp(
       return ok({});
     case "tools/list":
       return ok({
-        tools: TOOLS.map((t) => ({
+        tools: tools.list.map((t) => ({
           name: t.name,
           title: t.title,
           description: t.description,
@@ -152,13 +159,13 @@ export async function handleMcp(
       });
     case "tools/call": {
       if (typeof params.name !== "string") return rpcError(id, ERR.invalidParams, "params.name is required");
-      let ctx: ToolContext;
+      let ctx: C;
       try {
         ctx = await getContext();
       } catch (e) {
         return rpcError(id, ERR.internal, `Server not configured: ${(e as Error).message}`);
       }
-      const result = await callTool(params.name, params.arguments ?? {}, ctx);
+      const result = await tools.call(params.name, params.arguments ?? {}, ctx);
       if (!result) return rpcError(id, ERR.invalidParams, `Unknown tool: ${params.name}`);
       return ok({ ...result });
     }

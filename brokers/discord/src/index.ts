@@ -12,13 +12,13 @@ import {
   insufficientScope,
   type OAuthResourceContext,
 } from "@cloudflare/workers-oauth-provider";
-import { VERSION, publicUrl, required } from "broker-core";
+import { VERSION, handleMcp, publicUrl, required } from "broker-core";
 import { AuthProps, SCOPE, handleAuthorize, handleCallback, isAllowed, userAgent } from "./auth";
 import { DiscordClient } from "./discord/client";
 import { Scope } from "./discord/scope";
 import type { Env } from "./env";
-import { handleMcp } from "./mcp";
 import { channels, limiter } from "./shared";
+import { TOOLS, callTool } from "./tools";
 
 export { Feed } from "./feed";
 
@@ -65,6 +65,7 @@ function getRoles(env: Env): Roles {
         }
         return handleMcp(
           request,
+          { list: TOOLS, call: callTool },
           () => ({
             dc: new DiscordClient({ token: required(env, "DISCORD_BOT_TOKEN"), userAgent: userAgent(env) }, limiter),
             scope: new Scope(env.DISCORD_ALLOWED_GUILDS, env.DISCORD_ALLOWED_CHANNELS, channels),
