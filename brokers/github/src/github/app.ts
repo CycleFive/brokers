@@ -3,6 +3,8 @@
 // The private key only ever lives in the Worker's secret store. Nothing here logs it,
 // returns it, or puts it in an error message.
 
+import { base64url } from "broker-core";
+
 const RSA_ENCRYPTION_ALG_ID = new Uint8Array([
   // SEQUENCE { OID 1.2.840.113549.1.1.1 (rsaEncryption), NULL }
   0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
@@ -44,13 +46,6 @@ function base64ToBytes(b64: string): Uint8Array {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
-}
-
-export function base64url(bytes: Uint8Array | string): string {
-  const b = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
-  let bin = "";
-  for (let i = 0; i < b.length; i++) bin += String.fromCharCode(b[i]);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /**

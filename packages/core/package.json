@@ -1,0 +1,19 @@
+{
+  "name": "broker-core",
+  "version": "0.3.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Code shared by the Cloudflare Worker MCP brokers",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./test-support/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.2.4"
+  }
+}

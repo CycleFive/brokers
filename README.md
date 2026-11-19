@@ -14,10 +14,14 @@ allowlist, without ever exposing the upstream token or key.
 ```
 brokers/discord   Discord broker Worker
 brokers/github    GitHub broker Worker
-packages/         shared packages (none yet)
+packages/core     broker-core: code both brokers share
 ```
 
 One npm workspace; `npm install` at the root installs everything.
+
+## What is shared
+
+`packages/core` (`broker-core`) holds what both brokers use: the version number (`VERSION`), `publicUrl`, `required` and `base64url`, the tool types with `ToolInputError`, `validateArgs` and `truncate`, and, under `broker-core/testing`, the in-memory KV the flow tests use. `vitest.shared.ts` holds the test settings every package shares, including the Node stand-in for `cloudflare:workers`. Every `package.json` states the same version, and a core test checks that.
 
 ## Commands
 
