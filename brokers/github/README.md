@@ -93,7 +93,8 @@ npx wrangler kv namespace create OAUTH_KV
 
 `wrangler.jsonc` is git-ignored: it holds your own IDs and URL, no secrets. Paste the KV
 id into it, then fill in `vars`: `GITHUB_APP_CLIENT_ID`,
-`GITHUB_INSTALLATION_ID`, `ALLOWED_GITHUB_USERS`, optionally `GITHUB_DEFAULT_OWNER`.
+`GITHUB_INSTALLATION_ID`, `ALLOWED_GITHUB_USERS`, optionally `GITHUB_DEFAULT_OWNER`. Set `DISABLE_CIMD` to `"true"` only if Claude cannot
+fetch the Worker's client metadata document and should register itself instead (default: empty).
 
 ### 3. First deploy, to learn the URL
 

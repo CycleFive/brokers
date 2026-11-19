@@ -1,4 +1,6 @@
-export interface Env {
+import type { BaseEnv } from "broker-core";
+
+export interface Env extends BaseEnv {
   /** KV namespace the OAuth library keeps clients, grants and tokens in. */
   OAUTH_KV: KVNamespace;
 
