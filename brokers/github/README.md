@@ -169,7 +169,7 @@ Each call logs one `{"event":"feed","method","path","status","ms"}` line, never 
 ## Development
 
 ```sh
-npm test            # vitest: PEM/JWT, token cache, tools, MCP conformance, full OAuth flow
+npm test            # vitest: PEM/JWT, token cache, tools, Feed, full OAuth flow (MCP protocol conformance is tested in packages/core)
 npm run typecheck
 cp .dev.vars.example .dev.vars && npm run dev   # local workerd on :8787
 ```
@@ -179,8 +179,9 @@ The tests run the server against the official MCP clients (`@modelcontextprotoco
 sign-in: registration → consent → GitHub (faked) → token → MCP calls, with and without the
 `resource` parameter. GitHub's API is faked at the fetch layer; no test touches a real key.
 
-Layout: `src/index.ts` (routing, OAuth roles), `src/auth.ts` (consent, GitHub sign-in,
-allowlist), `src/mcp.ts` (transport), `src/tools.ts`, `src/feed.ts` (internal feed), `src/github/app.ts` (PEM, JWT, token
+Layout: `src/index.ts` (wires `createBroker` from `broker-core`), `src/signin.ts` (GitHub
+sign-in, allowlist, config checks). The MCP server, consent pages and sign-in flow come from
+`broker-core`. Also: `src/tools.ts`, `src/feed.ts` (internal feed), `src/github/app.ts` (PEM, JWT, token
 cache), `src/github/client.ts` (REST client).
 
 ## License
