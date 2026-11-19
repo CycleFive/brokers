@@ -1,22 +1,12 @@
 // github-broker: a remote MCP server that lends Claude a GitHub App installation
-// without ever handing over the app's private key.
-//
-//   /mcp                                   MCP endpoint (OAuth bearer required)
-//   /.well-known/oauth-protected-resource  RFC 9728 metadata (resource server)
-//   /.well-known/oauth-authorization-server, /oauth/token, /oauth/register  (library)
-//   /authorize, /callback                  consent page + Sign in with GitHub
+// without ever handing over the app's private key. The OAuth endpoints, sign-in pages and
+// /mcp router are broker-core's (createBroker); this file wires in what is GitHub-specific.
 
-import {
-  OAuthAuthorizationServer,
-  OAuthResourceServer,
-  insufficientScope,
-  type OAuthResourceContext,
-} from "@cloudflare/workers-oauth-provider";
-import { VERSION, handleMcp, publicUrl, required } from "broker-core";
-import { AuthProps, SCOPE, handleAuthorize, handleCallback, isAllowed } from "./auth";
+import { createBroker, required } from "broker-core";
 import type { Env } from "./env";
 import { tokens } from "./github/app";
 import { GitHubClient } from "./github/client";
+import { signIn, type AuthProps } from "./signin";
 import { TOOLS, callTool } from "./tools";
 
 export { Feed } from "./feed";
@@ -27,83 +17,26 @@ const INSTRUCTIONS =
   "commit_files makes one commit with any number of file changes and never force-pushes. " +
   "github_request reaches any other REST endpoint.";
 
-interface Roles {
-  url: string;
-  as: OAuthAuthorizationServer<Env>;
-  rs: OAuthResourceServer<Env, AuthProps>;
-}
-let roles: Roles | undefined;
+export default createBroker<Env, AuthProps, Awaited<ReturnType<typeof context>>>({
+  name: "github-broker",
+  title: "GitHub broker",
+  instructions: INSTRUCTIONS,
+  signIn,
+  tools: { list: TOOLS, call: callTool },
+  context,
+});
 
-function getRoles(env: Env): Roles {
-  const url = publicUrl(env);
-  if (roles && roles.url === url) return roles;
-  const resource = `${url}/mcp`;
-
-  const as = new OAuthAuthorizationServer<Env>({
-    issuer: url,
-    resources: [resource],
-    scopesSupported: [SCOPE, "offline_access"],
-    clientRegistrationEndpoint: "/oauth/register",
-    clientIdMetadataDocumentEnabled: true,
-    accessTokenTTL: 3600,
-  });
-
-  const rs = new OAuthResourceServer<Env, AuthProps>({
-    resourceMetadata: { resource, authorization_servers: [url], resource_name: "GitHub broker" },
-    requiredScopes: [SCOPE],
-    validateToken: (e) => (res, token) => as.validateToken<AuthProps>(res, token, e),
-    handler: {
-      async fetch(request: Request, env: Env, ctx: OAuthResourceContext<AuthProps>) {
-        if (!ctx.auth.scope.includes(SCOPE)) return insufficientScope(ctx.auth, [SCOPE]);
-        const props = ctx.props;
-        // Re-check on every request, so removing someone from the allowlist takes effect at once.
-        if (!props || !isAllowed(env.ALLOWED_GITHUB_USERS, props)) {
-          return new Response("Forbidden", { status: 403 });
-        }
-        return handleMcp(
-          request,
-          { list: TOOLS, call: callTool },
-          () => ({
-            gh: new GitHubClient(
-              {
-                issuer: required(env, "GITHUB_APP_CLIENT_ID"),
-                installationId: required(env, "GITHUB_INSTALLATION_ID"),
-                privateKeyPem: required(env, "GITHUB_APP_PRIVATE_KEY"),
-              },
-              tokens,
-            ),
-            defaultOwner: env.GITHUB_DEFAULT_OWNER || undefined,
-            user: props,
-          }),
-          {
-            serverInfo: { name: "github-broker", title: "GitHub broker", version: VERSION },
-            instructions: INSTRUCTIONS,
-            allowedOrigins: env.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean),
-          },
-        );
+function context(env: Env, user: AuthProps) {
+  return {
+    gh: new GitHubClient(
+      {
+        issuer: required(env, "GITHUB_APP_CLIENT_ID"),
+        installationId: required(env, "GITHUB_INSTALLATION_ID"),
+        privateKeyPem: required(env, "GITHUB_APP_PRIVATE_KEY"),
       },
-    },
-  });
-
-  roles = { url, as, rs };
-  return roles;
+      tokens,
+    ),
+    defaultOwner: env.GITHUB_DEFAULT_OWNER || undefined,
+    user,
+  };
 }
-
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const { pathname } = new URL(request.url);
-    const { as, rs } = getRoles(env);
-
-    if (pathname === "/authorize") return handleAuthorize(request, env, as.getOAuthApi(env));
-    if (pathname === "/callback") return handleCallback(request, env, as.getOAuthApi(env), ctx);
-    if (pathname === "/mcp" || pathname.startsWith("/mcp/") || pathname.startsWith("/.well-known/oauth-protected-resource")) {
-      return rs.fetch(request, env, ctx);
-    }
-    if (pathname === "/" && request.method === "GET") {
-      return new Response(`github-broker ${VERSION}: MCP endpoint at ${publicUrl(env)}/mcp\n`, {
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
-    }
-    return as.fetch(request, env, ctx);
-  },
-} satisfies ExportedHandler<Env>;

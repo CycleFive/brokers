@@ -27,6 +27,8 @@
     "GITHUB_DEFAULT_OWNER": "",
     // Who may sign in: GitHub user IDs (preferred, survive renames) or logins.
     "ALLOWED_GITHUB_USERS": "<your-github-user-id>",
+    // Optional: "true" makes Claude register via DCR instead of a Client ID Metadata Document.
+    "DISABLE_CIMD": "",
     // Optional: Origins accepted when a request carries an Origin header.
     "ALLOWED_ORIGINS": ""
   },

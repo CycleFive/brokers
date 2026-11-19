@@ -104,6 +104,17 @@ async function signIn(e: Env, withResource = true) {
   return { cb, client_id, verifier, githubVerifierChallenge: gh.searchParams.get("code_challenge") };
 }
 
+describe("OAuth metadata", () => {
+  it("advertises the same scopes and endpoints as before", async () => {
+    const m = (await (await call(env(), "/.well-known/oauth-authorization-server")).json()) as Record<string, any>;
+    expect(m.issuer).toBe(BASE);
+    expect(m.scopes_supported).toEqual(["github", "offline_access"]);
+    expect(m.token_endpoint).toBe(`${BASE}/oauth/token`);
+    expect(m.registration_endpoint).toBe(`${BASE}/oauth/register`);
+    expect(m.authorization_endpoint).toBe(`${BASE}/authorize`);
+  });
+});
+
 describe("full sign-in and MCP flow", () => {
   it.each([true, false])("issues a token to an allowlisted user and serves MCP with it (resource param: %s)", async (withResource) => {
     const e = env();
@@ -160,5 +171,35 @@ describe("full sign-in and MCP flow", () => {
     expect(cb.status).toBe(403);
     expect(await cb.text()).toContain("not allowed");
     githubUser = { id: 4242, login: "Lothrop" };
+  });
+});
+
+describe("hardening gained from broker-core", () => {
+  it("explains an empty allowlist instead of sending you to GitHub", async () => {
+    const e = env("");
+    const reg = await call(e, "/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Claude", redirect_uris: [REDIRECT], token_endpoint_auth_method: "none" }),
+    });
+    const { client_id } = (await reg.json()) as { client_id: string };
+    const q = new URLSearchParams({ response_type: "code", client_id, redirect_uri: REDIRECT, scope: "github offline_access", state: "s", code_challenge: "x".repeat(43), code_challenge_method: "S256" });
+    const consent = await call(e, `/authorize?${q}`);
+    const handle = (await consent.text()).match(/name="handle" value="([^"]+)"/)![1];
+    const approve = await call(e, "/authorize", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: cookieHeader(consent) },
+      body: new URLSearchParams({ handle, decision: "approve" }).toString(),
+    });
+    expect(approve.status).toBe(500);
+    expect(await approve.text()).toContain("nobody could sign in");
+    expect(approve.headers.get("location")).toBeNull();
+  });
+
+  it("answers an exception with a logged 500", async () => {
+    const e = { ...env(), PUBLIC_URL: "" };
+    const res = await call(e, "/");
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe("Internal error: PUBLIC_URL is not set\n");
   });
 });
