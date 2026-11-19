@@ -21,14 +21,14 @@ One npm workspace; `npm install` at the root installs everything.
 
 ## What is shared
 
-`packages/core` (`broker-core`) holds what both brokers use: the version number (`VERSION`), `publicUrl`, `required` and `base64url`, the tool types with `ToolInputError`, `validateArgs` and `truncate`, and, under `broker-core/testing`, the in-memory KV the flow tests use. `vitest.shared.ts` holds the test settings every package shares, including the Node stand-in for `cloudflare:workers`. Every `package.json` states the same version, and a core test checks that.
+`packages/core` (`broker-core`) holds what both brokers use: the utilities (`publicUrl`, `required`, `base64url`) and `VERSION`; the tool types with `ToolInputError`, `validateArgs` and `truncate`; the MCP server; the sign-in flow and its pages; `createBroker`, the request router; the two `Feed` helpers; and, under `broker-core/testing`, the in-memory KV and sign-in driver the tests use. `vitest.shared.ts` holds the test settings every package shares, including the Node stand-in for `cloudflare:workers`. Every `package.json` states the same version, and a core test checks that.
 
 ## Commands
 
 ```sh
 npm install
-npm run typecheck   # both brokers
-npm test            # both brokers
+npm run typecheck   # core and both brokers
+npm test            # core and both brokers
 ```
 
 ## Deploying

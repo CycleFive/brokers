@@ -236,7 +236,7 @@ token or the OAuth client secret. Callers send ordinary `Request`s such as
 
 `DISCORD_ALLOWED_GUILDS` and `DISCORD_ALLOWED_CHANNELS` apply to `/api/...` exactly as they
 do to `discord_request`. `POST /signin` does not check `ALLOWED_DISCORD_USERS`; the caller
-decides who may sign in. Each call logs one `feed` line (path, status, ms; never bodies).
+decides who may sign in. Each call logs one `feed` line (event, method, path, status, ms; never bodies).
 
 A consumer binds it in its own `wrangler.jsonc`:
 
@@ -269,7 +269,7 @@ post under that agent's name.
 ## Development
 
 ```sh
-npm test            # vitest: client (rate limits, breakers), tools, scope, MCP conformance, full OAuth flow
+npm test            # vitest: client (rate limits, breakers), tools, scope, Feed, full OAuth flow (MCP protocol conformance is tested in packages/core)
 npm run typecheck
 cp .dev.vars.example .dev.vars && npm run dev   # local workerd on :8787
 ```
@@ -279,8 +279,9 @@ The tests run the server against the official MCP clients (`@modelcontextprotoco
 sign-in: registration → consent → Discord (faked) → token → MCP calls. Discord's API is
 faked at the fetch layer; no test touches a real token.
 
-Layout: `src/index.ts` (routing, OAuth roles), `src/auth.ts` (consent, Discord sign-in,
-allowlist, config checks), `src/mcp.ts` (transport, identical to github-broker's),
+Layout: `src/index.ts` (wires `createBroker` from `broker-core`), `src/signin.ts` (Discord
+sign-in, allowlist, config checks). The MCP server, consent pages and sign-in flow come from
+`broker-core`. Also:
 `src/feed.ts` (the internal `Feed` entrypoint), `src/shared.ts` (isolate-wide limiter and cache),
 `src/tools.ts`, `src/discord/client.ts` (REST client, rate limits),
 `src/discord/scope.ts` (guild/channel allowlists).
