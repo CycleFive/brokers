@@ -282,8 +282,28 @@ export async function renderAll(
   return written;
 }
 
-function missingFrom(copy: Copy, have: string[] | null): string[] {
-  return copy.secrets.filter((name) => !(have ?? []).includes(name));
+/** How often the secret list is read before a secret is believed missing, and the wait between reads. */
+export const SECRET_READS = 3;
+export const SECRET_READ_WAIT_MS = 2000;
+
+/**
+ * The required secrets a copy lacks, and whether its Worker exists. Cloudflare can answer an
+ * empty or partial list for a moment after a deploy, so a secret counts as present once any
+ * read shows it, and one is only reported missing after SECRET_READS reads agree.
+ */
+async function secretsMissing(copy: Copy, deps: Deps): Promise<{ missing: string[]; exists: boolean }> {
+  const first = await secretNames(deps.run, deps.repoRoot, copy.worker);
+  if (first === null) return { missing: [...copy.secrets], exists: false };
+  const seen = new Set(first);
+  let reads = 1;
+  let missing = copy.secrets.filter((name) => !seen.has(name));
+  while (missing.length > 0 && reads < SECRET_READS) {
+    await deps.sleep(SECRET_READ_WAIT_MS);
+    for (const name of (await secretNames(deps.run, deps.repoRoot, copy.worker)) ?? []) seen.add(name);
+    reads++;
+    missing = copy.secrets.filter((name) => !seen.has(name));
+  }
+  return { missing, exists: true };
 }
 
 async function deployCopy(
@@ -319,14 +339,14 @@ async function deployCopy(
   deps.write(copy.configPath, serialize(config, deps.manifestPath));
   report.versionId = await deployConfig(deps.run, copy.dir, copy.configPath);
 
-  let missing = missingFrom(copy, await secretNames(deps.run, deps.repoRoot, copy.worker));
+  let { missing } = await secretsMissing(copy, deps);
   report.missingSecrets = missing;
   if (missing.length > 0 && deps.interactive) {
     for (const name of missing) {
       const put = await deps.run(["secret", "put", name, "--name", copy.worker], { cwd: deps.repoRoot, interactive: true });
       if (put.code !== 0) throw new Error(`wrangler secret put ${name} --name ${copy.worker} failed (exit ${put.code})`);
     }
-    missing = missingFrom(copy, await secretNames(deps.run, deps.repoRoot, copy.worker));
+    ({ missing } = await secretsMissing(copy, deps));
     report.missingSecrets = missing;
   }
   if (!deps.interactive) for (const name of missing) deps.log(`npx wrangler secret put ${name} --name ${copy.worker}`);
@@ -380,9 +400,9 @@ export async function status(copies: Copy[], deps: Deps): Promise<Report[]> {
     const report = newReport(copy);
     reports.push(report);
     try {
-      const have = await secretNames(deps.run, deps.repoRoot, copy.worker);
-      report.missingSecrets = missingFrom(copy, have);
-      if (have === null) report.error = "not deployed";
+      const { missing, exists } = await secretsMissing(copy, deps);
+      report.missingSecrets = missing;
+      if (!exists) report.error = "not deployed";
       const seen = await probe(copy, deps);
       report.version = seen.version;
       report.verified = seen.version === deps.version && seen.issuer;

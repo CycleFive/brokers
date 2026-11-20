@@ -1,6 +1,6 @@
 {
   "name": "mailbox-tool",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "license": "MIT",
   "description": "Reads a manifest of mailboxes and generates and deploys each one's broker configs",
