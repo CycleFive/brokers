@@ -170,7 +170,11 @@ hand-kept `brokers/*/wrangler.jsonc` is retired once the manifest is shown equal
 
 Verify means: `GET <url>/` starts with `<example name> <version>:` and
 `GET <url>/.well-known/oauth-authorization-server` has `issuer` equal to `<url>`, retried
-for up to two minutes because a new custom domain takes time to come up.
+every five seconds: for two minutes on `workers.dev`, for ten on a custom domain. A new
+custom domain took about four minutes to answer in the live test (DNS, then a certificate
+Cloudflare issues by itself). Until a public DNS-over-HTTPS resolver has the name the tool
+does not ask for it at all, because the machine's own resolver caches the empty answer
+for half an hour and the browser that opens the sign-in page uses that resolver.
 
 The command exits non-zero when any copy failed to deploy, failed verification or lacks
 a secret.
@@ -180,6 +184,20 @@ a secret.
 `packages/mailbox`, a workspace package in TypeScript run directly by Node (type
 stripping, Node 22.18 or later). Wrangler is driven through one injected `run` function
 and HTTP through an injected `fetch`, so the orchestration is tested without an account.
+
+### Guards added after the whole-branch review
+
+- The manifest is refused when a key appears twice in one object (a pasted mailbox whose
+  name was not changed would replace a live one) or two copies pin the same `kv`.
+- A copy is not deployed when its KV namespace id is already another copy's; when its
+  Worker does not exist yet but its hostname already resolves (wrangler would take the
+  hostname over without asking); or, unless `--allow-change` is given, when the config
+  about to be written differs from the previous generated one in Worker name, KV id or
+  `PUBLIC_URL`.
+- Mailroom's config is planned before any broker is deployed and by `check`; a
+  hand-written `wrangler.jsonc` there is kept once as `.bak`; renaming the binding of a
+  Worker mailroom already binds needs `--allow-change`; mailroom is deployed only after
+  every chosen copy deployed, has its secrets and verified.
 
 ## My calls
 

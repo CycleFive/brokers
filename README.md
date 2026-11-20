@@ -83,6 +83,12 @@ from what it is about to write, and refuses to rename a binding in mailroom's `w
 (mailroom would lose its read positions). Both usually mean the manifest was edited by
 mistake. If the change is intended, run the same command again with `--allow-change`.
 
+**"<host> already resolves, so it belongs to something else".** A Worker that does not exist
+yet is not deployed to a hostname that already has a DNS record, because wrangler would take
+the hostname over without asking. This also happens when a Worker was deleted and its DNS
+record or custom domain was left behind, or when a wildcard record covers the name. Remove
+the record (Cloudflare dashboard, the zone's DNS page), or give the copy another `url`.
+
 Check a manifest without touching Cloudflare: `npm run mailbox -- check --manifest mailboxes.example.jsonc`.
 
 ### Adding a mailbox
