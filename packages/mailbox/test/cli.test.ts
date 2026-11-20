@@ -59,9 +59,17 @@ describe("main check", () => {
     expect(await main(["check", "--manifest", join(tmpdir(), "no-such-manifest.jsonc")])).toBe(1);
   });
 
-  it("says not implemented for the other commands", async () => {
+  it("returns 1 and names the known mailboxes when a name is not one of them", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mailbox-test-"));
+    const file = join(dir, "m.jsonc");
+    writeFileSync(
+      file,
+      `{ "hostname": "{mailbox}-{broker}.w.example.com", "mailboxes": { "one": { "brokers": { "discord": { "vars": {} } } }, "two": { "brokers": { "github": { "vars": {} } } } } }`,
+    );
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(await main(["deploy"])).toBe(1);
-    expect(String(err.mock.calls[0][0])).toContain("not implemented");
+    expect(await main(["check", "nope", "--manifest", file])).toBe(1);
+    const message = String(err.mock.calls[0][0]);
+    expect(message).toContain("nope");
+    expect(message).toContain("one, two");
   });
 });
