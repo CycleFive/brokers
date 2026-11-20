@@ -50,7 +50,8 @@ generates every config from it, deploys and verifies.
 - Wrangler 4.157: one config file is one Worker (plus `env` blocks, which do not inherit
   `vars` or KV). `wrangler deploy -c <file>` deploys any config file; `main` resolves
   relative to that file.
-- Secrets are per Worker, set with `wrangler secret put`. `wrangler secret list` prints
+- Secrets are per Worker, set with `wrangler secret put`, which needs the Worker to exist:
+  the first deploy comes before the secrets. `wrangler secret list` prints
   `[{"name": "...", "type": "secret_text"}]`; for a Worker that does not exist it prints
   an error containing `not found`.
 - A Worker's first deploy on this account can fail with `[code: 10007]`; the same deploy
@@ -138,8 +139,11 @@ everything broker-specific from that file:
 - the keys of its `vars` are the only variables a mailbox may set; a key whose example
   value is `""` is optional and defaults to `""`, any other is required; `PUBLIC_URL` is
   always set by the tool;
-- `"secrets": { "required": [...] }` (a wrangler config key, added to both examples) lists
-  the secret names;
+- the secret names come from the broker's `package.json`, as `"broker": { "secrets": [...] }`.
+  They are deliberately not in the wrangler config: wrangler 4.157 refuses to deploy a
+  config with `secrets.required` until every secret is set, and a Worker that does not
+  exist yet cannot be given a secret with `wrangler secret put`, so a new mailbox could
+  never have its first deploy (found by the smoke test);
 - everything else (`main`, compatibility date and flags, observability) is copied.
 
 ### Generated files
