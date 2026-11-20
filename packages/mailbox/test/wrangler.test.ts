@@ -26,7 +26,7 @@ describe("createKv", () => {
   it("creates a namespace and returns the id found by listing again", async () => {
     const { run, calls } = fakeRun((args) => (args[2] === "list" ? { stdout: list([{ id: "new1", title: "t1" }]) } : {}));
     expect(await createKv(run, "/w", "t1")).toBe("new1");
-    expect(calls.map((c) => c.args)).toEqual([["kv", "namespace", "create", "t1"], ["kv", "namespace", "list"]]);
+    expect(calls.map((c) => c.args)).toEqual([["kv", "namespace", "create", "t1", "--update-config=false"], ["kv", "namespace", "list"]]);
   });
 
   it("fails when a created namespace does not appear in the listing", async () => {
@@ -42,13 +42,25 @@ describe("createKv", () => {
 
 describe("secretNames", () => {
   it("tells a Worker that does not exist from one with no secrets", async () => {
-    const missing = fakeRun(() => ({ code: 1, stderr: "Worker not found. [code: 10007]" }));
+    const missing = fakeRun(() => ({ code: 1, stderr: 'Worker "w1" not found.' }));
     expect(await secretNames(missing.run, "/w", "w1")).toBeNull();
     expect(missing.calls[0].args).toEqual(["secret", "list", "--name", "w1"]);
     const none = fakeRun(() => ({ stdout: "[]" }));
     expect(await secretNames(none.run, "/w", "w1")).toEqual([]);
     const some = fakeRun(() => ({ stdout: `[{"name":"A","type":"secret_text"},{"name":"B","type":"secret_text"}]` }));
     expect(await secretNames(some.run, "/w", "w1")).toEqual(["A", "B"]);
+  });
+
+  it("trusts a clean listing first, even when a secret's name contains 'not found'", async () => {
+    const { run } = fakeRun(() => ({ stdout: `[{"name":"X_not found_Y","type":"secret_text"},{"name":"Worker \\"w1\\" not found","type":"secret_text"}]` }));
+    expect(await secretNames(run, "/w", "w1")).toEqual(["X_not found_Y", 'Worker "w1" not found']);
+  });
+
+  it("throws on a failure that mentions another thing not found", async () => {
+    const other = fakeRun(() => ({ code: 1, stderr: 'Account "a" not found. Worker "other" not found.' }));
+    await expect(secretNames(other.run, "/w", "w1")).rejects.toThrow(/secret list/);
+    const file = fakeRun(() => ({ code: 1, stderr: "config file not found" }));
+    await expect(secretNames(file.run, "/w", "w1")).rejects.toThrow(/secret list/);
   });
 
   it("throws on secret-list output it does not understand", async () => {
