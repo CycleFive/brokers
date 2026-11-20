@@ -446,6 +446,59 @@ git commit -m "docs: mailboxes and adding a broker; version 0.4.0"
 
 ---
 
+### Task 5: Declare each broker's secrets in its `package.json`
+
+Added after the driver's smoke test: wrangler 4.157 refuses `wrangler deploy` for a config
+that has `secrets.required` while a secret is unset (`The following required secrets have
+not been set: ...`), and says a Worker that does not exist yet cannot be given secrets
+with `wrangler secret put`. With the key in the example, a new mailbox can never have its
+first deploy, and neither can someone following a broker README by hand. This task
+supersedes Task 1 Step 2 and every mention of `secrets.required` in Tasks 1 to 4.
+
+**Files:**
+- Modify: `brokers/discord/wrangler.example.jsonc`, `brokers/github/wrangler.example.jsonc` (remove the `secrets` key added in Task 1; nothing else)
+- Modify: `brokers/discord/package.json`, `brokers/github/package.json`
+- Modify: `packages/mailbox/src/manifest.ts`, `packages/mailbox/test/manifest.test.ts`, `packages/mailbox/test/render.test.ts`, and any other test that builds a `Template`
+- Modify: `README.md`, `brokers/discord/README.md`, `brokers/github/README.md`
+
+**Interfaces:**
+- Changes: `readTemplate(broker: string, dir: string, text: string, packageJson: string): Template`. `Template.secrets` is `JSON.parse(packageJson).broker.secrets`, which must be an array of strings (it may be empty); otherwise it throws an Error naming `brokers/<broker>/package.json` and `broker.secrets`. `readTemplate` no longer looks at a `secrets` key in the example, and a `secrets` key in an example is an Error (`brokers/<broker>/wrangler.example.jsonc must not have "secrets": wrangler would refuse the first deploy; declare them in package.json`).
+- `loadTemplates(repoRoot)` reads `brokers/<name>/package.json` next to each example.
+- Unchanged: `Template`, `Copy`, everything in `render.ts`, `wrangler.ts`, `deploy.ts`, `cli.ts`.
+
+- [ ] **Step 1: Change the tests first and see them fail**
+
+In-test templates pass a fourth argument, e.g. `'{ "broker": { "secrets": ["ALPHA_TOKEN"] } }'`, and their example text loses `secrets`. Add or change:
+
+```ts
+it("reads a broker's secret names from its package.json", ...)          // secrets equal the array
+it("readTemplate names what a broker lacks", ...)                        // package.json without broker.secrets: message contains "brokers/alpha/package.json" and "broker.secrets"; two kv_namespaces still rejected
+it("refuses an example that declares secrets to wrangler", ...)          // example with "secrets": { "required": [] } throws; message contains "must not have \"secrets\""
+it("loadTemplates reads this repository's brokers", ...)                 // unchanged expectations: the two secret lists as before
+it("no rendered config carries a secrets key", ...)                      // in render.test.ts, for both real brokers: "secrets" in cfg === false
+```
+
+Run: `npm test -w mailbox-tool`. Expected: FAIL (wrong arity, `secrets` still read from the example).
+
+- [ ] **Step 2: Implement**
+
+`"broker": { "secrets": ["DISCORD_BOT_TOKEN", "DISCORD_CLIENT_SECRET"] }` in `brokers/discord/package.json` and `"broker": { "secrets": ["GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_CLIENT_SECRET"] }` in `brokers/github/package.json`; remove the `secrets` key from both examples; change `readTemplate` and `loadTemplates`.
+
+- [ ] **Step 3: Correct the documentation**
+
+Wherever the READMEs say the secrets are listed under `secrets.required` in the example, say instead that they are listed under `broker.secrets` in the broker's `package.json`, and in the root README's "Adding a broker" list give the reason in one sentence. In the root README's "Adding a mailbox" steps, make sure the order is stated as it happens: the first deploy creates the Worker, then the tool asks for each secret.
+
+- [ ] **Step 4: Run everything and commit**
+
+Run: `npm run typecheck && npm test`, `npm run mailbox -- check --manifest mailboxes.example.jsonc`, and `grep -rn "secrets.required\|\"required\"" README.md brokers/*/README.md brokers/*/wrangler.example.jsonc packages/mailbox` (expected: no match outside the refusal test and message).
+
+```bash
+git add -A brokers/discord/wrangler.example.jsonc brokers/github/wrangler.example.jsonc brokers/discord/package.json brokers/github/package.json packages/mailbox README.md brokers/discord/README.md brokers/github/README.md
+git commit -m "fix(mailbox): declare a broker's secrets in package.json, not to wrangler"
+```
+
+---
+
 ## After the tasks (driver, not a subagent)
 
 1. Write the real manifest from the live configs into `~/projects/mailboxes`, pinning every existing `worker`, `url`, `kv` and `binding`.
