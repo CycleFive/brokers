@@ -163,7 +163,7 @@ npx wrangler login
 npx wrangler kv namespace create OAUTH_KV
 ```
 
-`wrangler.jsonc` is git-ignored: it holds your own IDs and URL, no secrets. The example's `secrets.required` lists the secrets step 4 sets; the mailbox tool checks for them. Paste the KV
+`wrangler.jsonc` is git-ignored: it holds your own IDs and URL, no secrets. The secrets step 4 sets are listed under `broker.secrets` in this broker's `package.json`; the mailbox tool checks for them. Paste the KV
 id into it, then fill in `vars`: `DISCORD_CLIENT_ID`,
 `ALLOWED_DISCORD_USERS` (your numeric user ID, not a username), and optionally
 `DISCORD_ALLOWED_GUILDS` / `DISCORD_ALLOWED_CHANNELS`.

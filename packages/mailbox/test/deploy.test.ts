@@ -5,17 +5,16 @@ import {
 import { parseManifest, readTemplate, resolveCopies } from "../src/manifest.ts";
 import type { Run } from "../src/wrangler.ts";
 
-function example(name: string, vars: Record<string, string>, secrets: string[]): string {
+function example(name: string, vars: Record<string, string>): string {
   return JSON.stringify({
     name,
     main: "src/index.ts",
     vars,
-    secrets: { required: secrets },
     kv_namespaces: [{ binding: "OAUTH_KV", id: "<id>" }],
   });
 }
-const alpha = readTemplate("alpha", "/repo/brokers/alpha", example("alpha-broker", { PUBLIC_URL: "https://x" }, ["ALPHA_TOKEN"]));
-const beta = readTemplate("beta", "/repo/brokers/beta", example("beta-broker", { PUBLIC_URL: "https://x" }, ["BETA_KEY"]));
+const alpha = readTemplate("alpha", "/repo/brokers/alpha", example("alpha-broker", { PUBLIC_URL: "https://x" }), JSON.stringify({ broker: { secrets: ["ALPHA_TOKEN"] } }));
+const beta = readTemplate("beta", "/repo/brokers/beta", example("beta-broker", { PUBLIC_URL: "https://x" }), JSON.stringify({ broker: { secrets: ["BETA_KEY"] } }));
 const templates = [alpha, beta];
 
 function copiesOf(text: string) {

@@ -6,20 +6,19 @@ import { renderBroker, renderMailroom, serialize } from "../src/render.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
-function example(name: string, vars: Record<string, string>, secrets: string[]): string {
+function example(name: string, vars: Record<string, string>): string {
   return JSON.stringify({
     name,
     main: "src/index.ts",
     compatibility_date: "2025-01-01",
     observability: { enabled: true },
     vars,
-    secrets: { required: secrets },
     kv_namespaces: [{ binding: "OAUTH_KV", id: "<id>" }],
   });
 }
 
-const alpha = readTemplate("alpha", "/repo/brokers/alpha", example("alpha-broker", { PUBLIC_URL: "https://x", ALPHA_ID: "<id>" }, ["ALPHA_TOKEN"]));
-const beta = readTemplate("beta", "/repo/brokers/beta", example("beta-broker", { PUBLIC_URL: "https://x", BETA_ID: "<id>" }, ["BETA_KEY"]));
+const alpha = readTemplate("alpha", "/repo/brokers/alpha", example("alpha-broker", { PUBLIC_URL: "https://x", ALPHA_ID: "<id>" }), JSON.stringify({ broker: { secrets: ["ALPHA_TOKEN"] } }));
+const beta = readTemplate("beta", "/repo/brokers/beta", example("beta-broker", { PUBLIC_URL: "https://x", BETA_ID: "<id>" }), JSON.stringify({ broker: { secrets: ["BETA_KEY"] } }));
 const templates = [alpha, beta];
 
 function copiesOf(text: string) {
@@ -150,7 +149,7 @@ describe("the example manifest", () => {
       const cfg = renderBroker(copy, t, "kv-id") as any;
       expect(cfg.main).toBe("src/index.ts");
       expect(cfg.compatibility_flags).toEqual(["global_fetch_strictly_public"]);
-      expect(cfg.secrets.required).toEqual(t.secrets);
+      expect("secrets" in cfg).toBe(false);
       expect(cfg.vars.PUBLIC_URL).toBe(copy.url);
     }
   });

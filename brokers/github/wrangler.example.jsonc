@@ -32,11 +32,9 @@
     // Optional: Origins accepted when a request carries an Origin header.
     "ALLOWED_ORIGINS": ""
   },
-  // Secrets, set with `wrangler secret put` (never in this file):
+  // Secrets, set with `wrangler secret put` (never in this file; the mailbox tool reads
+  // their names from "broker.secrets" in package.json):
   //   GITHUB_APP_PRIVATE_KEY, GITHUB_APP_CLIENT_SECRET
-  "secrets": {
-    "required": ["GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_CLIENT_SECRET"]
-  },
   "observability": {
     "enabled": true
   }

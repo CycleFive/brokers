@@ -35,11 +35,9 @@
     // Optional: Origins accepted when a request carries an Origin header.
     "ALLOWED_ORIGINS": ""
   },
-  // Secrets, set with `wrangler secret put` (never in this file):
+  // Secrets, set with `wrangler secret put` (never in this file; the mailbox tool reads
+  // their names from "broker.secrets" in package.json):
   //   DISCORD_BOT_TOKEN, DISCORD_CLIENT_SECRET
-  "secrets": {
-    "required": ["DISCORD_BOT_TOKEN", "DISCORD_CLIENT_SECRET"]
-  },
   "observability": {
     "enabled": true
   }

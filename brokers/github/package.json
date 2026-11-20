@@ -12,6 +12,9 @@
     "test": "vitest run",
     "cf-typegen": "wrangler types"
   },
+  "broker": {
+    "secrets": ["GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_CLIENT_SECRET"]
+  },
   "dependencies": {
     "broker-core": "*"
   }
