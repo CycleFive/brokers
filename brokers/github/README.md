@@ -165,7 +165,8 @@ URL cannot reach it. It is read-only and fetch-style: send ordinary `Request`s s
 |---|---|
 | `GET /identity` | `200 {"id", "login": "<slug>[bot]", "name"}` for the app, cached per isolate |
 | `GET /api/repos/...?query` | GitHub's status and JSON body, unchanged |
-| `GET /api/<anything outside /repos/>` | `403 {"error": "feed reads /repos/ paths only"}` |
+| `GET /api/search/issues?query` | GitHub's status and JSON body for the issue search, unchanged (exactly this path; no other `/search/...`) |
+| `GET /api/<anything else outside /repos/>` | `403 {"error": "feed reads /repos/ paths and /search/issues only"}` |
 | other methods on `/api/...` | `405 {"error": "feed is read-only"}` |
 | anything else | `404 {"error": "not found"}` |
 

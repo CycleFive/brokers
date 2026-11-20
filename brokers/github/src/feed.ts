@@ -4,6 +4,7 @@
 //
 //   GET /identity       the app's bot identity ({id, login, name})
 //   GET /api/repos/...  a GET passed to GitHub as the installation, answer unchanged
+//   GET /api/search/issues  the same, for exactly this one search path
 
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { auditedFeed, json } from "broker-core";
@@ -62,8 +63,10 @@ async function route(request: Request, deps: FeedDeps): Promise<Response> {
     }
     // Test the path as GitHub will resolve it, so encoded dot segments cannot slip out of /repos/.
     const resolved = new URL(deps.gh.apiBase + target).pathname;
-    if (!target.startsWith("/repos/") || !resolved.startsWith("/repos/")) {
-      return json({ error: "feed reads /repos/ paths only" }, 403);
+    const allowed = (p: string) => p.startsWith("/repos/") || p === "/search/issues";
+    const sameArea = target.startsWith("/repos/") ? resolved.startsWith("/repos/") : target === resolved;
+    if (!allowed(target) || !allowed(resolved) || !sameArea) {
+      return json({ error: "feed reads /repos/ paths and /search/issues only" }, 403);
     }
     const res = await deps.gh.request({ path: target, query: Object.fromEntries(url.searchParams) });
     if (res.status === 204 || res.status === 304) return new Response(null, { status: res.status });

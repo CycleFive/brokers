@@ -9,6 +9,7 @@ function feed(extra: Parameters<typeof fakeGitHub>[0] = {}) {
   const { fetchImpl, log } = fakeGitHub({
     "GET /app": () => jsonRes({ id: 42, slug: "claudeduet", name: "Claude Duet" }),
     "GET /repos/o/r/issues": () => jsonRes([{ number: 1 }]),
+    "GET /search/issues": () => jsonRes({ total_count: 1, items: [{ number: 7 }] }),
     ...extra,
   });
   const { gh } = toolContext(fetchImpl);
@@ -49,8 +50,51 @@ describe("feed entrypoint", () => {
     for (const p of ["/api/user", "/api/app/installations", "/api", "/api/"]) {
       const res = await call(p);
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: "feed reads /repos/ paths only" });
+      expect(await res.json()).toEqual({ error: "feed reads /repos/ paths and /search/issues only" });
     }
+    expect(log).toEqual([]);
+  });
+
+  it("passes a search of issues through with its query", async () => {
+    const { call, log } = feed();
+    const res = await call("/api/search/issues?q=org%3AX+label%3A%22a%22&per_page=100");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ total_count: 1, items: [{ number: 7 }] });
+    const sent = log.find((r) => r.path === "/search/issues")!;
+    const q = new URL(sent.url).searchParams;
+    expect(q.get("q")).toBe('org:X label:"a"');
+    expect(q.get("per_page")).toBe("100");
+  });
+
+  it("refuses every other path outside /repos/ with the new message", async () => {
+    const { call, log } = feed();
+    for (const p of ["/api/search/code", "/api/search", "/api/search/issues/1", "/api/installation/repositories", "/api/user"]) {
+      const res = await call(p);
+      expect(res.status, p).toBe(403);
+      expect(await res.json()).toEqual({ error: "feed reads /repos/ paths and /search/issues only" });
+    }
+    expect(log).toEqual([]);
+  });
+
+  it("refuses a search path that resolves elsewhere", async () => {
+    const { call, log } = feed();
+    for (const p of [
+      "/api/search/issues/../code",
+      "/api/search/issues/..%2F..%2Fuser",
+      "/api/search//issues",
+      "/api/search/%69ssues/../code",
+    ]) {
+      const res = await call(p);
+      expect([400, 403], p).toContain(res.status);
+    }
+    expect(log).toEqual([]);
+  });
+
+  it("refuses a non-GET search", async () => {
+    const { call, log } = feed();
+    const res = await call("/api/search/issues", { method: "POST" });
+    expect(res.status).toBe(405);
+    expect(await res.json()).toEqual({ error: "feed is read-only" });
     expect(log).toEqual([]);
   });
 

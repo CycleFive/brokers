@@ -1,6 +1,6 @@
 {
   "name": "broker-core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "license": "MIT",
   "description": "Code shared by the Cloudflare Worker MCP brokers",
