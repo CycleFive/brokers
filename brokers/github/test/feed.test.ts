@@ -68,7 +68,7 @@ describe("feed entrypoint", () => {
 
   it("refuses every other path outside /repos/ with the new message", async () => {
     const { call, log } = feed();
-    for (const p of ["/api/search/code", "/api/search", "/api/search/issues/1", "/api/installation/repositories", "/api/user"]) {
+    for (const p of ["/api/search/code", "/api/search", "/api/search/issues/1", "/api/search/%69ssues", "/api/installation/repositories", "/api/user"]) {
       const res = await call(p);
       expect(res.status, p).toBe(403);
       expect(await res.json()).toEqual({ error: "feed reads /repos/ paths and /search/issues only" });
