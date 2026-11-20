@@ -61,6 +61,8 @@ cache hints) and the older handshake versions **2025-11-25 / 2025-06-18 / 2025-0
 
 ## Setup
 
+With more than one copy of this broker, the root README's ["Mailboxes"](../../README.md#mailboxes) section replaces steps 2 to 5.
+
 You need Node 20+, a Cloudflare account, and admin on the GitHub App.
 
 ### 1. GitHub App settings
@@ -91,7 +93,7 @@ npx wrangler login
 npx wrangler kv namespace create OAUTH_KV
 ```
 
-`wrangler.jsonc` is git-ignored: it holds your own IDs and URL, no secrets. Paste the KV
+`wrangler.jsonc` is git-ignored: it holds your own IDs and URL, no secrets. The example's `secrets.required` lists the secrets step 4 sets; the mailbox tool checks for them. Paste the KV
 id into it, then fill in `vars`: `GITHUB_APP_CLIENT_ID`,
 `GITHUB_INSTALLATION_ID`, `ALLOWED_GITHUB_USERS`, optionally `GITHUB_DEFAULT_OWNER`. Set `DISABLE_CIMD` to `"true"` only if Claude cannot
 fetch the Worker's client metadata document and should register itself instead (default: empty).

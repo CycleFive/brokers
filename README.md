@@ -15,6 +15,7 @@ allowlist, without ever exposing the upstream token or key.
 brokers/discord   Discord broker Worker
 brokers/github    GitHub broker Worker
 packages/core     broker-core: code both brokers share
+packages/mailbox  the mailbox tool: renders configs from a manifest, deploys, verifies
 ```
 
 One npm workspace; `npm install` at the root installs everything.
@@ -31,8 +32,89 @@ npm run typecheck   # core and both brokers
 npm test            # core and both brokers
 ```
 
-## Deploying
+## Mailboxes
 
-Run `npx wrangler deploy` inside a broker's directory (add `--env <name>` for an extra
-environment). Each broker's `wrangler.jsonc` is git-ignored; copy it from
-`wrangler.example.jsonc` and fill it in.
+A mailbox is one agent's own copy of each broker (its own Worker, KV namespace, upstream
+application and allowlist), plus its entry in the separate
+[mailroom](https://github.com/CycleFive/mailroom) service. One manifest describes every
+mailbox, and `npm run mailbox` generates each wrangler config from it, deploys and verifies.
+It needs Node 22.18 or later, because it runs TypeScript directly.
+
+### The manifest
+
+Copy [`mailboxes.example.jsonc`](mailboxes.example.jsonc) to `mailboxes.jsonc` and fill it in.
+The example comments every key. The tool looks for the manifest in this order:
+
+1. `--manifest <path>`
+2. the `MAILBOXES` environment variable
+3. `mailboxes.jsonc` at the repository root (git-ignored; a symlink to a file kept elsewhere works)
+
+The manifest holds no secret, but it decides who may sign in to each broker. Keep it out of
+this public repository, and out of anywhere the brokered agents themselves can write.
+
+### Commands
+
+```sh
+npm run mailbox -- <command> [mailbox...] [--manifest <path>] [--mailroom] [--no-input]
+```
+
+Name one or more mailboxes to act on only those; name none to act on all of them.
+
+| Command | What it does |
+| --- | --- |
+| `check` | Validates the manifest and prints each copy's mailbox, broker, Worker name and URL. Changes nothing. |
+| `render` | Writes each broker's generated `wrangler.<mailbox>.jsonc`, and `wrangler.jsonc` in mailroom's directory when the manifest has a `mailroom` entry and no mailbox is named. |
+| `deploy` | Creates a missing KV namespace, renders, deploys each copy, checks that its secrets are set, then verifies the running Worker (version and sign-in issuer). Prints the addresses to enter on the upstream applications. With `--mailroom`, then deploys `mailroom-core` with the entries of every mailbox in the manifest. |
+| `status` | Reads each copy's secrets and running version without deploying, and exits 1 if anything is missing or unverified. |
+
+`--no-input` stops `deploy` from prompting for missing secrets; it prints the
+`wrangler secret put` commands instead. It does the same when there is no terminal.
+
+Check a manifest without touching Cloudflare: `npm run mailbox -- check --manifest mailboxes.example.jsonc`.
+
+### Adding a mailbox
+
+1. Create the upstream applications: a Discord application and a GitHub App, as each
+   broker's README describes in its Setup step 1.
+2. Add the mailbox to `mailboxes.jsonc`, with each broker's `vars` and, if agents read its
+   mail, a `mail` entry. Run `npm run mailbox -- check` to see the names and URLs it will use.
+3. Run `npm run mailbox -- deploy <name> --mailroom`. This deploys the named mailbox's
+   brokers, then mailroom with every mailbox's entry.
+4. Type the secrets when `deploy` asks for them.
+5. Enter the redirect URLs `deploy` prints on the Discord application and the GitHub App.
+6. Connect the printed `/mcp` addresses as connectors in the agent's client.
+
+Run `npm run mailbox -- status <name>` afterwards to confirm everything verifies.
+
+An existing copy, deployed before you used the manifest, must pin its `kv` id, and its
+`worker`, `url` and `binding` wherever they differ from the defaults. The tool refuses to
+create a KV namespace for a Worker that already exists, because an empty namespace signs
+everyone out. Mailroom keys its read positions by binding name, so keep the existing `binding`.
+
+A `hostname` that is not `*.workers.dev` becomes a Cloudflare custom domain. Its zone must be
+on the same Cloudflare account as the Worker. The Worker then has no `workers.dev` address.
+
+### Releasing
+
+Run `npm run mailbox -- deploy` to deploy every broker copy of every mailbox. To try a
+release on one copy first, run `npm run mailbox -- deploy <name>`, check it, then run the
+full command.
+
+### One copy, no manifest
+
+Someone running a single copy can skip all of this: copy a broker's `wrangler.example.jsonc`
+to `wrangler.jsonc` (git-ignored) and run `npx wrangler deploy` in the broker's directory.
+Each broker's README walks through it.
+
+## Adding a broker
+
+Make a directory `brokers/<name>` with:
+
+- `package.json` and `tsconfig.json`, copied from an existing broker
+- `vitest.config.ts`
+- `wrangler.example.jsonc`, with `vars`, one `kv_namespaces` entry and `secrets.required`
+  listing the secrets the mailbox tool must find set
+- `src/index.ts`, which calls `createBroker`
+
+The mailbox tool and CI find the new broker with no change. Mailroom does not read its
+`Feed` until mailroom gains a source type for it.
