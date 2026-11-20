@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ManifestError, loadTemplates, parseManifest, readTemplate, resolveCopies } from "../src/manifest.ts";
 
@@ -117,11 +119,70 @@ describe("resolveCopies", () => {
     }
   });
 
+  it("rejects two copies pinning the same KV namespace", () => {
+    const m = parseManifest(`{ "hostname": "{mailbox}-{broker}.example.com", "mailboxes": {
+      "a": { "brokers": { "alpha": { "kv": "K", "vars": { "ALPHA_ID": "1" } } } },
+      "b": { "brokers": { "alpha": { "kv": "K", "vars": { "ALPHA_ID": "1" } } } } } }`);
+    const problems = problemsOf(() => resolveCopies(m, templates));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/^mailboxes\.b\.brokers\.alpha\.kv: /);
+    expect(problems[0]).toContain("mailboxes.a.brokers.alpha");
+  });
+
+  it("checks a copy's variables even when its url cannot be resolved", () => {
+    const m = parseManifest(`{ "mailboxes": { "m1": { "brokers": { "alpha": { "vars": { "ALPHA_IDD": "7" } } } } } }`);
+    const problems = problemsOf(() => resolveCopies(m, templates));
+    expect(paths(problems)).toEqual([
+      "mailboxes.m1.brokers.alpha.url",
+      "mailboxes.m1.brokers.alpha.vars.ALPHA_ID",
+      "mailboxes.m1.brokers.alpha.vars.ALPHA_IDD",
+    ]);
+  });
+
+  it("rejects a hostname pattern or url with a trailing dot", () => {
+    const dotted = parseManifest(`{ "hostname": "{mailbox}-{broker}.example.com.", "mailboxes": { "m1": { "brokers": { "alpha": { "vars": { "ALPHA_ID": "1" } } } } } }`);
+    expect(problemsOf(() => resolveCopies(dotted, templates))[0]).toMatch(/^mailboxes\.m1\.brokers\.alpha\.url: .*no port, path or trailing dot/);
+  });
+
   it("needs a hostname when a broker gives no url", () => {
     const m = parseManifest(`{ "mailboxes": { "m1": { "brokers": { "alpha": { "vars": { "ALPHA_ID": "1" } } } } } }`);
     const problems = problemsOf(() => resolveCopies(m, templates));
     expect(problems).toHaveLength(1);
     expect(problems[0]).toMatch(/^mailboxes\.m1\.brokers\.alpha\.url: .*hostname/);
+  });
+});
+
+describe("parseManifest origins", () => {
+  it("rejects an url with a port or a trailing dot", () => {
+    for (const bad of ["https://h.example.com:8443", "https://h.example.com."]) {
+      const problems = problemsOf(() => parseManifest(`{ "mailboxes": { "m1": { "brokers": { "alpha": { "url": "${bad}" } } } } }`));
+      expect(problems[0]).toMatch(/^mailboxes\.m1\.brokers\.alpha\.url: .*must be https:\/\/<host> with no port, path or trailing dot/);
+    }
+    const mr = problemsOf(() => parseManifest(`{ "mailroom": { "dir": "d", "url": "https://m.example.com:1" }, "mailboxes": { "m1": { "brokers": { "alpha": {} } } } }`));
+    expect(mr[0]).toMatch(/^mailroom\.url: .*no port, path or trailing dot/);
+  });
+});
+
+describe("parseManifest duplicate keys", () => {
+  it("reports a mailbox given twice", () => {
+    const problems = problemsOf(() =>
+      parseManifest(`{ "mailboxes": { "a": { "brokers": { "alpha": {} } }, "a": { "brokers": { "beta": {} } } } }`),
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/^mailboxes: duplicate key "a"/);
+  });
+
+  it("reports a variable given twice, at any depth", () => {
+    const problems = problemsOf(() =>
+      parseManifest(`{ "mailboxes": { "a": { "brokers": { "alpha": { "vars": { "X": "1", "X": "2" } } } } } }`),
+    );
+    expect(problems).toEqual([`mailboxes.a.brokers.alpha.vars: duplicate key "X"`]);
+  });
+
+  it("reports a top-level duplicate and a __proto__ key", () => {
+    expect(problemsOf(() => parseManifest(`{ "hostname": "a", "hostname": "b", "mailboxes": {} }`))[0]).toMatch(/duplicate key "hostname"/);
+    const proto = problemsOf(() => parseManifest(`{ "mailboxes": { "__proto__": { "brokers": { "alpha": {} } } } }`));
+    expect(proto).toEqual([`mailboxes: "__proto__" is not allowed`]);
   });
 });
 
@@ -209,6 +270,18 @@ describe("templates", () => {
   it("refuses an example that declares secrets to wrangler", () => {
     const withSecrets = JSON.stringify({ name: "n", vars: { PUBLIC_URL: "" }, secrets: { required: [] }, kv_namespaces: [{ binding: "K", id: "i" }] });
     expect(() => readTemplate("alpha", "/d", withSecrets, pkg([]))).toThrow(/must not have "secrets"/);
+  });
+
+  it("loadTemplates names the missing package.json of a broker directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "mailbox-templates-"));
+    try {
+      mkdirSync(join(root, "brokers", "solo"), { recursive: true });
+      writeFileSync(join(root, "brokers", "solo", "wrangler.example.jsonc"), example("solo", { PUBLIC_URL: "" }));
+      expect(() => loadTemplates(root)).toThrow(/brokers\/solo\/package\.json/);
+      expect(() => loadTemplates(root)).not.toThrow(/ENOENT/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("loadTemplates reads this repository's brokers", () => {

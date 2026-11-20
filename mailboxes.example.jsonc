@@ -6,15 +6,16 @@
   // Optional. Public host of a copy that gives no "url"; both placeholders are required.
   "hostname": "{mailbox}-{broker}.example.com",
 
-  // Optional. The mailroom that reads each mailbox's brokers.
-  "mailroom": {
-    // Directory the mailroom keeps its data in.
-    "dir": "/var/lib/mailroom",
-    // Optional. Public https origin of the mailroom.
-    "url": "https://mailroom.example.com",
-    // Optional. Days to keep what the mailroom has stored.
-    "retain_days": 30
-  },
+  // Optional. The mailroom that reads each mailbox's brokers. Uncomment it when mailroom is checked
+  // out. "dir" is the directory of mailroom's Worker (the one holding its wrangler.example.jsonc),
+  // relative to this file, e.g. "../mailroom/crates/worker"; `check` reads it.
+  // "mailroom": {
+  //   "dir": "../mailroom/crates/worker",
+  //   // Optional. Public https origin of the mailroom.
+  //   "url": "https://mailroom.example.com",
+  //   // Optional. Days to keep what the mailroom has stored.
+  //   "retain_days": 30
+  // },
 
   // Optional. Named lists; a string that is exactly "$lists.<name>" under "mailboxes" becomes that list.
   "lists": {
@@ -31,8 +32,9 @@
           "worker": "discord-broker-claude",
           // Optional. Public https origin, no trailing slash; default built from "hostname".
           "url": "https://discord-broker-claude.example.workers.dev",
-          // Optional. Id of an existing KV namespace; default is to create "<worker>-oauth".
-          "kv": "<kv-namespace-id>",
+          // Optional. Id of an existing KV namespace. Default: the namespace titled "<worker>-oauth",
+          // looked up by title and created only for a Worker that does not exist yet.
+          "kv": "<discord-kv-namespace-id>",
           // Optional. Name the mailroom binds this Worker as; default "<BROKER>_<MAILBOX>".
           "binding": "DISCORD_CLAUDE",
           // Variables from the broker's wrangler.example.jsonc (PUBLIC_URL is set from the url).
@@ -42,9 +44,10 @@
           }
         },
         "github": {
+          // As above.
           "worker": "github-broker-claude",
           "url": "https://github-broker-claude.example.workers.dev",
-          "kv": "<kv-namespace-id>",
+          "kv": "<github-kv-namespace-id>",
           "binding": "GITHUB_CLAUDE",
           "vars": {
             "GITHUB_APP_CLIENT_ID": "<app-client-id>",
