@@ -22,24 +22,22 @@ export function renderMailroom(manifest: Manifest, copies: Copy[], example: Reco
   const config = structuredClone(example);
   delete config.$schema;
 
-  const bindingOf = (mailbox: string, broker: string): string => {
+  const copyOf = (mailbox: string, broker: string): Copy => {
     const copy = copies.find((c) => c.mailbox === mailbox && c.broker === broker);
     if (!copy) throw new Error(`mailboxes.${mailbox}: no copy of broker "${broker}"`);
-    return copy.binding;
+    return copy;
   };
 
   const used = new Set<Copy>();
   const agents: Obj = {};
   for (const [mailbox, mb] of Object.entries(manifest.mailboxes)) {
     if (!mb.mail) continue;
-    const refs = [mb.mail.signin, ...mb.mail.sources.map((s) => s.broker)];
-    for (const broker of refs) {
-      const copy = copies.find((c) => c.mailbox === mailbox && c.broker === broker);
-      if (copy) used.add(copy);
-    }
+    const signin = copyOf(mailbox, mb.mail.signin);
+    const sources = mb.mail.sources.map((s) => ({ source: s, copy: copyOf(mailbox, s.broker) }));
+    for (const copy of [signin, ...sources.map((s) => s.copy)]) used.add(copy);
     agents[mailbox] = {
-      signin: bindingOf(mailbox, mb.mail.signin),
-      sources: mb.mail.sources.map((s): MailSource => ({ ...structuredClone(s), broker: bindingOf(mailbox, s.broker) })),
+      signin: signin.binding,
+      sources: sources.map(({ source, copy }): MailSource => ({ ...structuredClone(source), broker: copy.binding })),
     };
   }
   if (Object.keys(agents).length === 0) throw new Error("no mailbox has a \"mail\" entry, so there is nothing to render for the mailroom");

@@ -57,9 +57,16 @@ describe("renderBroker", () => {
   it("does not mutate the template", () => {
     const { copies } = copiesOf(`{ ${HOST}, "mailboxes": { "m1": { "brokers": { "alpha": { "vars": { "ALPHA_ID": "7" } } } } } }`);
     const before = structuredClone(alpha.config);
+    const varsBefore = structuredClone(copies[0].vars);
     const cfg = renderBroker(copies[0], alpha, "kv123");
     (cfg.vars as Record<string, string>).EXTRA = "x";
     expect(alpha.config).toEqual(before);
+    expect(copies[0].vars).toEqual(varsBefore);
+  });
+
+  it("has exactly the template's variables, in the template's order", () => {
+    const { copies } = copiesOf(`{ ${HOST}, "mailboxes": { "m1": { "brokers": { "alpha": { "vars": { "ALPHA_ID": "7" } } } } } }`);
+    expect(Object.keys(renderBroker(copies[0], alpha, "k").vars as object)).toEqual(Object.keys(alpha.vars));
   });
 });
 
@@ -120,6 +127,18 @@ describe("renderMailroom", () => {
     expect(Object.keys((out.vars as any).MAILROOM)).toEqual(["agents"]);
   });
 
+  it("lists agents in manifest order and services in copy order, once each", () => {
+    const text = `{ ${HOST}, "mailboxes": {
+      "m2": { "brokers": { "alpha": { "vars": { "ALPHA_ID": "2" } } },
+        "mail": { "signin": "alpha", "sources": [{ "type": "a", "broker": "alpha" }] } },
+      "m1": { "brokers": { "beta": { "vars": { "BETA_ID": "1" } }, "alpha": { "vars": { "ALPHA_ID": "1" } } },
+        "mail": { "signin": "alpha", "sources": [{ "type": "b", "broker": "beta" }, { "type": "a", "broker": "alpha" }] } } } }`;
+    const { manifest, copies } = copiesOf(text);
+    const out = renderMailroom(manifest, copies, MAILROOM_EXAMPLE);
+    expect(Object.keys((out.vars as any).MAILROOM.agents)).toEqual(["m2", "m1"]);
+    expect((out.services as any[]).map((s) => s.service)).toEqual(["alpha-broker-m2", "beta-broker-m1", "alpha-broker-m1"]);
+  });
+
   it("refuses to render mailroom when no mailbox has mail", () => {
     const { manifest, copies } = copiesOf(`{ ${HOST}, "mailboxes": { "m2": { "brokers": { "alpha": { "vars": { "ALPHA_ID": "2" } } } } } }`);
     expect(() => renderMailroom(manifest, copies, MAILROOM_EXAMPLE)).toThrow(Error);
@@ -151,6 +170,7 @@ describe("the example manifest", () => {
       expect(cfg.compatibility_flags).toEqual(["global_fetch_strictly_public"]);
       expect("secrets" in cfg).toBe(false);
       expect(cfg.vars.PUBLIC_URL).toBe(copy.url);
+      expect(Object.keys(cfg.vars)).toEqual(Object.keys(t.vars));
     }
   });
 });

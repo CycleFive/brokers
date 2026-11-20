@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+import { parse, parseTree, printParseErrorCode, type Node, type ParseError } from "jsonc-parser";
 
 export interface BrokerEntry {
   worker?: string;
@@ -57,7 +57,7 @@ function isHttpsOrigin(v: unknown): v is string {
   if (typeof v !== "string") return false;
   try {
     const u = new URL(v);
-    return u.protocol === "https:" && u.origin === v;
+    return u.protocol === "https:" && u.origin === v && u.port === "" && !u.hostname.endsWith(".");
   } catch {
     return false;
   }
@@ -67,6 +67,28 @@ function lineOf(text: string, offset: number): number {
   let line = 1;
   for (let i = 0; i < offset && i < text.length; i++) if (text[i] === "\n") line++;
   return line;
+}
+
+/** Every object with one key twice, and every key named __proto__, at any depth. */
+function keyProblems(text: string): string[] {
+  const problems: string[] = [];
+  const walk = (node: Node | undefined, path: string): void => {
+    if (!node) return;
+    if (node.type === "array") node.children?.forEach((child, i) => walk(child, `${path}[${i}]`));
+    if (node.type !== "object") return;
+    const where = path === "" ? "(top level)" : path;
+    const seen = new Set<string>();
+    for (const prop of node.children ?? []) {
+      const [keyNode, valueNode] = prop.children ?? [];
+      const key = keyNode?.value as string;
+      if (key === "__proto__") problems.push(`${where}: "__proto__" is not allowed`);
+      else if (seen.has(key)) problems.push(`${where}: duplicate key ${JSON.stringify(key)}`);
+      seen.add(key);
+      walk(valueNode, path === "" ? key : `${path}.${key}`);
+    }
+  };
+  walk(parseTree(text, [], { allowTrailingComma: true }), "");
+  return problems;
 }
 
 /** Replaces every string that is exactly "$lists.<name>" with a copy of that list. */
@@ -108,7 +130,7 @@ function checkBroker(raw: unknown, path: string, problems: string[]): BrokerEntr
   }
   if (raw.url !== undefined) {
     if (isHttpsOrigin(raw.url)) entry.url = raw.url;
-    else problems.push(`${path}.url: must be an https origin with no path or trailing slash (got ${JSON.stringify(raw.url)})`);
+    else problems.push(`${path}.url: must be https://<host> with no port, path or trailing dot (got ${JSON.stringify(raw.url)})`);
   }
   if (raw.binding !== undefined) {
     if (typeof raw.binding === "string" && BINDING_NAME.test(raw.binding)) entry.binding = raw.binding;
@@ -187,6 +209,8 @@ export function parseManifest(text: string): Manifest {
     throw new ManifestError(errors.map((e) => `line ${lineOf(text, e.offset)}: ${printParseErrorCode(e.error)}`));
   }
   if (!isObj(raw)) throw new ManifestError(["(top level): must be an object"]);
+  const keys = keyProblems(text);
+  if (keys.length > 0) throw new ManifestError(keys);
 
   const problems: string[] = [];
   checkKeys(raw, ["hostname", "mailroom", "lists", "mailboxes"], "", problems);
@@ -208,7 +232,7 @@ export function parseManifest(text: string): Manifest {
       else problems.push("mailroom.dir: must be a non-empty string");
       if (m.url !== undefined) {
         if (isHttpsOrigin(m.url)) entry.url = m.url;
-        else problems.push(`mailroom.url: must be an https origin with no path or trailing slash (got ${JSON.stringify(m.url)})`);
+        else problems.push(`mailroom.url: must be https://<host> with no port, path or trailing dot (got ${JSON.stringify(m.url)})`);
       }
       if (m.retain_days !== undefined) {
         if (typeof m.retain_days === "number" && Number.isInteger(m.retain_days) && m.retain_days >= 0) entry.retain_days = m.retain_days;
@@ -310,7 +334,14 @@ export function loadTemplates(repoRoot: string): Template[] {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw e;
     }
-    out.push(readTemplate(entry.name, dir, text, readFileSync(join(dir, "package.json"), "utf8")));
+    let packageJson: string;
+    try {
+      packageJson = readFileSync(join(dir, "package.json"), "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`brokers/${entry.name}/package.json is missing: it declares the broker's secrets in "broker.secrets"`);
+      throw e;
+    }
+    out.push(readTemplate(entry.name, dir, text, packageJson));
   }
   return out.sort((a, b) => (a.broker < b.broker ? -1 : a.broker > b.broker ? 1 : 0));
 }
@@ -352,15 +383,12 @@ export function resolveCopies(manifest: Manifest, templates: Template[]): Copy[]
       if (url === undefined) {
         if (manifest.hostname === undefined) {
           problems.push(`${path}.url: no url given and the manifest has no "hostname" pattern to build one from`);
-          continue;
-        }
-        url = `https://${manifest.hostname.replaceAll("{mailbox}", mailbox).replaceAll("{broker}", broker)}`;
-        if (!isHttpsOrigin(url)) {
-          problems.push(`${path}.url: the hostname pattern gives ${JSON.stringify(url)}, which is not an https origin`);
-          continue;
+        } else {
+          const built = `https://${manifest.hostname.replaceAll("{mailbox}", mailbox).replaceAll("{broker}", broker)}`;
+          if (isHttpsOrigin(built)) url = built;
+          else problems.push(`${path}.url: the hostname pattern gives ${JSON.stringify(built)}, which must be https://<host> with no port, path or trailing dot`);
         }
       }
-      const host = new URL(url).host;
 
       const given = entry.vars ?? {};
       for (const key of Object.keys(given)) {
@@ -369,11 +397,13 @@ export function resolveCopies(manifest: Manifest, templates: Template[]): Copy[]
       }
       const vars: Record<string, string> = {};
       for (const [key, example] of Object.entries(t.vars)) {
-        if (key === "PUBLIC_URL") vars[key] = url;
+        if (key === "PUBLIC_URL") vars[key] = url ?? "";
         else if (Object.hasOwn(given, key)) vars[key] = given[key];
         else if (example === "") vars[key] = "";
         else problems.push(`${path}.vars.${key}: required (the example has ${JSON.stringify(example)})`);
       }
+      if (url === undefined) continue;
+      const host = new URL(url).host;
 
       const worker = entry.worker ?? `${t.name}-${mailbox}`;
       const copy: Copy = {
@@ -397,12 +427,15 @@ export function resolveCopies(manifest: Manifest, templates: Template[]): Copy[]
     }
   }
 
-  for (const field of ["worker", "url", "binding"] as const) {
+  for (const field of ["worker", "url", "binding", "kvId"] as const) {
     const seen = new Map<string, Copy>();
     for (const copy of copies) {
-      const first = seen.get(copy[field]);
-      if (first) problems.push(`${paths.get(copy)}.${field}: ${JSON.stringify(copy[field])} is already used by ${paths.get(first)}`);
-      else seen.set(copy[field], copy);
+      const value = copy[field];
+      if (value === undefined) continue;
+      const name = field === "kvId" ? "kv" : field;
+      const first = seen.get(value);
+      if (first) problems.push(`${paths.get(copy)}.${name}: ${JSON.stringify(value)} is already used by ${paths.get(first)}`);
+      else seen.set(value, copy);
     }
   }
 
