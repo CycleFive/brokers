@@ -1,0 +1,15 @@
+{
+  "name": "mailbox-tool",
+  "version": "0.3.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Reads a manifest of mailboxes and generates and deploys each one's broker configs",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

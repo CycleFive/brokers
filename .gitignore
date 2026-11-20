@@ -3,3 +3,6 @@ node_modules/
 .dev.vars
 wrangler.jsonc
 *.pem
+wrangler.*.jsonc
+!wrangler.example.jsonc
+mailboxes.jsonc

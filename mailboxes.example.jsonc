@@ -1,0 +1,94 @@
+// Manifest of mailboxes: one agent's copy of each broker.
+// Copy to mailboxes.jsonc (git-ignored) and fill in your own values:
+//   cp mailboxes.example.jsonc mailboxes.jsonc
+// Check it with: npm run mailbox -- check
+{
+  // Optional. Public host of a copy that gives no "url"; both placeholders are required.
+  "hostname": "{mailbox}-{broker}.example.com",
+
+  // Optional. The mailroom that reads each mailbox's brokers.
+  "mailroom": {
+    // Directory the mailroom keeps its data in.
+    "dir": "/var/lib/mailroom",
+    // Optional. Public https origin of the mailroom.
+    "url": "https://mailroom.example.com",
+    // Optional. Days to keep what the mailroom has stored.
+    "retain_days": 30
+  },
+
+  // Optional. Named lists; a string that is exactly "$lists.<name>" under "mailboxes" becomes that list.
+  "lists": {
+    "team-channels": ["222222222222222222", "333333333333333333"],
+    "team-repos": ["example-org/app", "example-org/docs"]
+  },
+
+  "mailboxes": {
+    // Pins every optional key: Worker name, workers.dev URL, existing KV namespace and binding name.
+    "claude": {
+      "brokers": {
+        "discord": {
+          // Optional. Worker name; default "<example name>-<mailbox>".
+          "worker": "discord-broker-claude",
+          // Optional. Public https origin, no trailing slash; default built from "hostname".
+          "url": "https://discord-broker-claude.example.workers.dev",
+          // Optional. Id of an existing KV namespace; default is to create "<worker>-oauth".
+          "kv": "<kv-namespace-id>",
+          // Optional. Name the mailroom binds this Worker as; default "<BROKER>_<MAILBOX>".
+          "binding": "DISCORD_CLAUDE",
+          // Variables from the broker's wrangler.example.jsonc (PUBLIC_URL is set from the url).
+          "vars": {
+            "DISCORD_CLIENT_ID": "111111111111111111",
+            "ALLOWED_DISCORD_USERS": "444444444444444444"
+          }
+        },
+        "github": {
+          "worker": "github-broker-claude",
+          "url": "https://github-broker-claude.example.workers.dev",
+          "kv": "<kv-namespace-id>",
+          "binding": "GITHUB_CLAUDE",
+          "vars": {
+            "GITHUB_APP_CLIENT_ID": "<app-client-id>",
+            "GITHUB_INSTALLATION_ID": "555555555",
+            "ALLOWED_GITHUB_USERS": "666666666"
+          }
+        }
+      },
+      // Optional. What the mailroom reads for this mailbox.
+      "mail": {
+        // Broker (of this mailbox) the mailroom signs in through.
+        "signin": "discord",
+        "sources": [
+          // "type" and "broker" are required; other keys depend on the type.
+          { "type": "discord", "broker": "discord", "channels": "$lists.team-channels" },
+          { "type": "github", "broker": "github", "repos": "$lists.team-repos" }
+        ]
+      }
+    },
+
+    // Uses every default: names, URLs and bindings come from the mailbox name and "hostname".
+    "manus": {
+      "brokers": {
+        "discord": {
+          "vars": {
+            "DISCORD_CLIENT_ID": "111111111111111111",
+            "ALLOWED_DISCORD_USERS": "444444444444444444"
+          }
+        },
+        "github": {
+          "vars": {
+            "GITHUB_APP_CLIENT_ID": "<app-client-id>",
+            "GITHUB_INSTALLATION_ID": "555555555",
+            "ALLOWED_GITHUB_USERS": "666666666"
+          }
+        }
+      },
+      "mail": {
+        "signin": "discord",
+        "sources": [
+          { "type": "discord", "broker": "discord", "channels": "$lists.team-channels" },
+          { "type": "github", "broker": "github", "repos": "$lists.team-repos" }
+        ]
+      }
+    }
+  }
+}
