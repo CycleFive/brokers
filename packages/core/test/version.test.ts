@@ -21,5 +21,5 @@ it("is the one version every package.json states", () => {
   for (const p of files) {
     expect(JSON.parse(readFileSync(new URL(p, root), "utf8")).version, p).toBe(VERSION);
   }
-  expect(VERSION).toBe("0.5.0");
+  expect(VERSION).toBe("0.5.1");
 });

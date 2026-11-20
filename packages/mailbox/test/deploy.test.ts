@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  deployCopies, deployMailroom, nextSteps, planMailroom, probe, publiclyResolves, renderAll, status, succeeded, verify, type Deps,
+  SECRET_READ_WAIT_MS, SECRET_READS, deployCopies, deployMailroom, nextSteps, planMailroom, probe, publiclyResolves, renderAll, status, succeeded,
+  verify, type Deps,
 } from "../src/deploy.ts";
 import { parseManifest, readTemplate, resolveCopies, type Copy } from "../src/manifest.ts";
 import { renderBroker, serialize } from "../src/render.ts";
@@ -16,7 +17,8 @@ function example(name: string, vars: Record<string, string>): string {
 }
 const alpha = readTemplate("alpha", "/repo/brokers/alpha", example("alpha-broker", { PUBLIC_URL: "https://x" }), JSON.stringify({ broker: { secrets: ["ALPHA_TOKEN"] } }));
 const beta = readTemplate("beta", "/repo/brokers/beta", example("beta-broker", { PUBLIC_URL: "https://x" }), JSON.stringify({ broker: { secrets: ["BETA_KEY"] } }));
-const templates = [alpha, beta];
+const gamma = readTemplate("gamma", "/repo/brokers/gamma", example("gamma-broker", { PUBLIC_URL: "https://x" }), JSON.stringify({ broker: { secrets: ["A", "B"] } }));
+const templates = [alpha, beta, gamma];
 
 function copiesOf(text: string) {
   const manifest = parseManifest(text);
@@ -28,8 +30,23 @@ const TWO = `{ ${HOST}, "mailboxes": { "m1": { "brokers": { "alpha": {} } }, "m2
 
 interface Call { args: string[]; cwd: string; interactive?: boolean }
 
-/** A fake account: KV namespaces by title, Workers with their secret names. */
-function world(opts: { kv?: Record<string, string>; workers?: Record<string, string[]>; deployFails?: string[] } = {}) {
+/**
+ * A fake account: KV namespaces by title, Workers with their secret names.
+ * `afterDeploy` and `reads` script the secret list of a Worker: each read takes the next answer (names, in order)
+ * until they run out, then the real names are listed. `afterDeploy` starts at the Worker's first deploy, `reads` at once.
+ */
+function world(
+  opts: {
+    kv?: Record<string, string>;
+    workers?: Record<string, string[]>;
+    deployFails?: string[];
+    afterDeploy?: Record<string, string[][]>;
+    reads?: Record<string, string[][]>;
+  } = {},
+) {
+  const afterDeploy = new Map(Object.entries(opts.afterDeploy ?? {}).map(([k, v]) => [k, [...v]]));
+  const deployedWorkers = new Set<string>();
+  const scripted = new Map(Object.entries(opts.reads ?? {}).map(([k, v]) => [k, [...v]]));
   const kv = new Map(Object.entries(opts.kv ?? {}));
   const workers = new Map(Object.entries(opts.workers ?? {}));
   const calls: Call[] = [];
@@ -45,7 +62,8 @@ function world(opts: { kv?: Record<string, string>; workers?: Record<string, str
     if (a === "secret" && b === "list") {
       const secrets = workers.get(args[3]);
       if (!secrets) return { code: 1, stdout: "", stderr: `Worker "${args[3]}" not found.` };
-      return ok(JSON.stringify(secrets.map((name) => ({ name, type: "secret_text" }))));
+      const next = scripted.get(args[3])?.shift() ?? (deployedWorkers.has(args[3]) ? afterDeploy.get(args[3])?.shift() : undefined);
+      return ok(JSON.stringify((next ?? secrets).map((name) => ({ name, type: "secret_text" }))));
     }
     if (a === "secret" && b === "put") {
       workers.get(args[4])?.push(args[2]); // secret put NAME --name WORKER
@@ -56,6 +74,7 @@ function world(opts: { kv?: Record<string, string>; workers?: Record<string, str
       if (opts.deployFails?.includes(worker)) return { code: 1, stdout: "", stderr: "Worker failed [code: 10007]" };
       const name = [...copyWorkers].find(([m]) => m === worker)?.[1] ?? worker;
       if (!workers.has(name)) workers.set(name, []);
+      deployedWorkers.add(name);
       const host = hostOf.get(worker);
       if (host) live.add(host);
       return ok(`Current Version ID: id-${worker}\n`);
@@ -201,7 +220,7 @@ describe("verify a new hostname", () => {
 describe("deployCopies", () => {
   it("deploys a new mailbox: creates the KV namespace, writes the config, deploys, verifies", async () => {
     const { copies, w } = setup(ONE);
-    const { deps, files } = depsFor(w);
+    const { deps, files, sleeps } = depsFor(w);
     const [report] = await deployCopies(copies, copies, templates, deps);
     expect(w.calls.map((c) => c.args)).toEqual([
       ["kv", "namespace", "list"],
@@ -209,9 +228,10 @@ describe("deployCopies", () => {
       ["kv", "namespace", "create", "alpha-broker-m1-oauth", "--update-config=false"],
       ["kv", "namespace", "list"],
       ["deploy", "-c", copies[0].configPath],
-      ["secret", "list", "--name", "alpha-broker-m1"],
+      ...Array.from({ length: SECRET_READS }, () => ["secret", "list", "--name", "alpha-broker-m1"]),
     ]);
-    expect(w.calls.map((c) => c.cwd)).toEqual(["/repo", "/repo", "/repo", "/repo", copies[0].dir, "/repo"]);
+    expect(w.calls.map((c) => c.cwd)).toEqual(["/repo", "/repo", "/repo", "/repo", copies[0].dir, ...Array(SECRET_READS).fill("/repo")]);
+    expect(sleeps.filter((ms) => ms === SECRET_READ_WAIT_MS)).toHaveLength(SECRET_READS - 1);
     const written = files.get(copies[0].configPath) ?? "";
     expect(written).toContain("kv-alpha-broker-m1-oauth");
     expect(written).toContain("/cfg/mailboxes.jsonc");
@@ -241,8 +261,9 @@ describe("deployCopies", () => {
     const { deps, files } = depsFor(w);
     await deployCopies(copies, copies, templates, deps);
     expect(files.get(copies[0].configPath)).toContain("pinned1");
-    // the id is known, but a custom domain still needs the Worker's existence checked: one listing before, one after
-    expect(w.calls.filter((c) => c.args[0] === "secret")).toHaveLength(2);
+    // the id is known, but a custom domain still needs the Worker's existence checked: one listing before, then
+    // SECRET_READS after (the Worker has no secrets, so ALPHA_TOKEN stays missing through all of them)
+    expect(w.calls.filter((c) => c.args[0] === "secret")).toHaveLength(1 + SECRET_READS);
     expect(w.calls.filter((c) => c.args.join(" ") === "kv namespace list")).toHaveLength(1);
     expect(w.calls.some((c) => c.args.includes("create"))).toBe(false);
   });
@@ -658,6 +679,77 @@ describe("status", () => {
     expect(first).toMatchObject({ missingSecrets: [], verified: true, version: "1.2.3" });
     expect(second).toMatchObject({ missingSecrets: ["ALPHA_TOKEN"], error: "not deployed" });
     expect(succeeded([first, second])).toBe(false);
+  });
+});
+
+describe("the secret list after a deploy", () => {
+  const EXISTING = { workers: { "alpha-broker-m1": ["ALPHA_TOKEN"] }, kv: { "alpha-broker-m1-oauth": "k" } };
+  const listsAfterDeploy = (w: ReturnType<typeof world>) => {
+    const at = w.calls.findIndex((c) => c.args[0] === "deploy");
+    return w.calls.slice(at + 1).filter((c) => c.args[0] === "secret" && c.args[1] === "list");
+  };
+
+  it("a secret list that is empty for a moment after a deploy is read again", async () => {
+    const { copies, w } = setup(ONE, { ...EXISTING, afterDeploy: { "alpha-broker-m1": [[]] } });
+    const { deps, logs, sleeps } = depsFor(w);
+    const [report] = await deployCopies(copies, copies, templates, deps);
+    expect(report.missingSecrets).toEqual([]);
+    expect(logs.some((l) => l.startsWith("npx wrangler secret put"))).toBe(false);
+    expect(succeeded([report])).toBe(true);
+    expect(sleeps.filter((ms) => ms === SECRET_READ_WAIT_MS)).toHaveLength(1);
+    expect(listsAfterDeploy(w)).toHaveLength(2);
+  });
+
+  it("a secret seen in any read counts as present", async () => {
+    const { copies, w } = setup(`{ ${HOST}, "mailboxes": { "m1": { "brokers": { "gamma": {} } } } }`, {
+      workers: { "gamma-broker-m1": ["A", "B"] },
+      kv: { "gamma-broker-m1-oauth": "k" },
+      afterDeploy: { "gamma-broker-m1": [["A"], [], ["B"]] },
+    });
+    const { deps, logs } = depsFor(w);
+    const [report] = await deployCopies(copies, copies, templates, deps);
+    expect(report.missingSecrets).toEqual([]);
+    expect(logs.some((l) => l.startsWith("npx wrangler secret put"))).toBe(false);
+    expect(listsAfterDeploy(w)).toHaveLength(3);
+  });
+
+  it("secrets that are really missing are reported after SECRET_READS reads", async () => {
+    const { copies, w } = setup(`{ ${HOST}, "mailboxes": { "m1": { "brokers": { "gamma": {} } } } }`, {
+      workers: { "gamma-broker-m1": ["A"] },
+      kv: { "gamma-broker-m1-oauth": "k" },
+    });
+    const { deps, logs, sleeps } = depsFor(w);
+    const [report] = await deployCopies(copies, copies, templates, deps);
+    expect(report.missingSecrets).toEqual(["B"]);
+    expect(logs).toContain("npx wrangler secret put B --name gamma-broker-m1");
+    expect(listsAfterDeploy(w)).toHaveLength(SECRET_READS);
+    expect(sleeps.filter((ms) => ms === SECRET_READ_WAIT_MS)).toHaveLength(SECRET_READS - 1);
+  });
+
+  it("at a terminal, a momentarily empty list does not prompt for secrets that exist", async () => {
+    const { copies, w } = setup(ONE, { ...EXISTING, afterDeploy: { "alpha-broker-m1": [[]] } });
+    const { deps } = depsFor(w, { interactive: true });
+    const [report] = await deployCopies(copies, copies, templates, deps);
+    expect(w.calls.some((c) => c.interactive)).toBe(false);
+    expect(w.calls.some((c) => c.args[0] === "secret" && c.args[1] === "put")).toBe(false);
+    expect(report.missingSecrets).toEqual([]);
+  });
+
+  it("status reads the secret list again before calling a secret missing", async () => {
+    const { copies, w } = setup(ONE, { workers: { "alpha-broker-m1": ["ALPHA_TOKEN"] }, reads: { "alpha-broker-m1": [[]] } });
+    const { deps } = depsFor(w);
+    const [report] = await status(copies, deps);
+    expect(report.missingSecrets).toEqual([]);
+    expect(report.error).toBeUndefined();
+  });
+
+  it("a Worker that does not exist is not read again", async () => {
+    const { copies, w } = setup(ONE);
+    const { deps, sleeps } = depsFor(w);
+    const [report] = await status(copies, deps);
+    expect(w.calls.filter((c) => c.args[0] === "secret")).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+    expect(report).toMatchObject({ error: "not deployed", missingSecrets: ["ALPHA_TOKEN"] });
   });
 });
 
