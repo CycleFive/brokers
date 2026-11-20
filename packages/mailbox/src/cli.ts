@@ -1,12 +1,14 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout } from "node:timers/promises";
-import { deployCopies, deployMailroom, nextSteps, renderAll, status, succeeded, type Deps, type Report } from "./deploy.ts";
-import { loadTemplates, ManifestError, parseManifest, resolveCopies, type Manifest } from "./manifest.ts";
+import {
+  deployCopies, deployMailroom, nextSteps, planMailroom, refuseMailroomRename, renderAll, status, succeeded, type Deps, type Report,
+} from "./deploy.ts";
+import { loadTemplates, ManifestError, parseManifest, resolveCopies } from "./manifest.ts";
 import { wranglerRunner } from "./wrangler.ts";
 
-const USAGE = "usage: mailbox <check | render | deploy | status> [names...] [--manifest FILE] [--mailroom] [--no-input]";
+const USAGE = "usage: mailbox <check | render | deploy | status> [names...] [--manifest FILE] [--mailroom] [--allow-change] [--no-input]";
 const COMMANDS = ["check", "render", "deploy", "status"] as const;
 
 export interface Args {
@@ -15,15 +17,17 @@ export interface Args {
   manifest?: string;
   mailroom: boolean;
   input: boolean;
+  allowChange: boolean;
 }
 
 export function parseArgs(argv: string[]): Args {
   const [command, ...rest] = argv;
   if (!COMMANDS.includes(command as Args["command"])) throw new Error(`unknown or missing command ${JSON.stringify(command)}\n${USAGE}`);
-  const args: Args = { command: command as Args["command"], names: [], manifest: undefined, mailroom: false, input: true };
+  const args: Args = { command: command as Args["command"], names: [], manifest: undefined, mailroom: false, input: true, allowChange: false };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === "--mailroom") args.mailroom = true;
+    else if (a === "--allow-change") args.allowChange = true;
     else if (a === "--no-input") args.input = false;
     else if (a === "--manifest") {
       const value = rest[++i];
@@ -32,6 +36,7 @@ export function parseArgs(argv: string[]): Args {
     } else if (a.startsWith("-")) throw new Error(`unknown flag ${a}\n${USAGE}`);
     else args.names.push(a);
   }
+  if (args.mailroom && args.command !== "deploy") throw new Error(`--mailroom is only for deploy\n${USAGE}`);
   return args;
 }
 
@@ -50,6 +55,7 @@ function realDeps(args: Args, path: string): Deps {
     sleep: (ms) => setTimeout(ms),
     read: (file) => readFileSync(file, "utf8"),
     write: (file, text) => writeFileSync(file, text),
+    exists: (file) => existsSync(file),
     interactive: args.input && process.stdin.isTTY === true,
     version,
     repoRoot,
@@ -71,63 +77,90 @@ function reportLines(reports: Report[]): string[] {
   });
 }
 
-/** Exit code: 0 done, 2 usage error, 1 anything else that went wrong. */
-export async function main(argv: string[]): Promise<number> {
-  let args: Args;
-  try {
-    args = parseArgs(argv);
-  } catch (e) {
-    console.error((e as Error).message);
+function message(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Runs a parsed command. Exit code: 0 done, 2 usage error, 1 anything else that went wrong. */
+export async function execute(args: Args, deps: Deps, out: (line: string) => void, err: (line: string) => void): Promise<number> {
+  if (args.mailroom && args.command !== "deploy") {
+    err(`--mailroom is only for deploy\n${USAGE}`);
     return 2;
   }
   try {
-    const path = manifestPath(args, process.env, repoRoot);
-    const manifest = parseManifest(readFileSync(path, "utf8"));
+    const manifest = parseManifest(deps.read(deps.manifestPath));
     const known = Object.keys(manifest.mailboxes);
     const unknown = args.names.filter((n) => !known.includes(n));
     if (unknown.length > 0) {
-      console.error(`unknown mailbox ${unknown.join(", ")}; the manifest has: ${known.join(", ")}`);
+      err(`unknown mailbox ${unknown.join(", ")}; the manifest has: ${known.join(", ")}`);
       return 1;
     }
-    const templates = loadTemplates(repoRoot);
+    const templates = loadTemplates(deps.repoRoot);
     const allCopies = resolveCopies(manifest, templates);
     const chosen = args.names.length > 0 ? args.names : known;
     const copies = allCopies.filter((c) => chosen.includes(c.mailbox));
 
     if (args.command === "check") {
       const [m, b, w] = [table(copies, (c) => c.mailbox), table(copies, (c) => c.broker), table(copies, (c) => c.worker)];
-      for (const c of copies) console.log(`${c.mailbox.padEnd(m)}  ${c.broker.padEnd(b)}  ${c.worker.padEnd(w)}  ${c.url}`);
+      for (const c of copies) out(`${c.mailbox.padEnd(m)}  ${c.broker.padEnd(b)}  ${c.worker.padEnd(w)}  ${c.url}`);
+      if (manifest.mailroom) planMailroom(manifest, allCopies, deps);
       return 0;
     }
 
-    const deps = realDeps(args, path);
-    // Mailroom's config describes every mailbox, so it is only rendered when all of them are chosen.
-    const selected: Manifest = { ...manifest, mailboxes: Object.fromEntries(chosen.map((n) => [n, manifest.mailboxes[n]])) };
     if (args.command === "render") {
-      const forAll = args.names.length === 0 ? manifest : { ...manifest, mailroom: undefined };
-      for (const file of await renderAll(forAll, copies, templates, deps)) console.log(`wrote ${file}`);
-      return 0;
+      // Mailroom's config describes every mailbox, so it is only rendered when all of them are chosen.
+      const written = await renderAll(manifest, copies, allCopies, templates, deps, { mailroom: args.names.length === 0, allowChange: args.allowChange });
+      for (const file of written) out(`wrote ${file}`);
+      return copies.every((c) => written.includes(c.configPath)) ? 0 : 1;
     }
     if (args.command === "status") {
       const reports = await status(copies, deps);
-      for (const line of reportLines(reports)) console.log(line);
+      for (const line of reportLines(reports)) out(line);
       return succeeded(reports) ? 0 : 1;
     }
 
-    if (args.mailroom && !manifest.mailroom) throw new Error('the manifest has no "mailroom" entry');
-    const reports = await deployCopies(copies, templates, deps);
-    for (const line of reportLines(reports)) console.log(line);
-    for (const line of nextSteps(selected, copies)) console.log(line);
-    if (!succeeded(reports)) return 1;
     if (args.mailroom) {
-      await deployMailroom(manifest, allCopies, deps);
-      console.log("mailroom deployed");
+      if (!manifest.mailroom) {
+        err('the manifest has no "mailroom" entry');
+        return 1;
+      }
+      // Everything that can be known about mailroom's config is checked before the first copy is deployed.
+      refuseMailroomRename(planMailroom(manifest, allCopies, deps), deps, args.allowChange);
     }
-    return 0;
+    const reports = await deployCopies(copies, allCopies, templates, deps, { allowChange: args.allowChange });
+    for (const line of reportLines(reports)) out(line);
+    let code = succeeded(reports) ? 0 : 1;
+    let mailroomDeployed = false;
+    if (args.mailroom && code === 0) {
+      try {
+        await deployMailroom(manifest, allCopies, deps, { allowChange: args.allowChange });
+        mailroomDeployed = true;
+        out("mailroom deployed");
+      } catch (e) {
+        err(message(e));
+        code = 1;
+      }
+    }
+    const selected = { ...manifest, mailroom: mailroomDeployed ? manifest.mailroom : undefined };
+    selected.mailboxes = Object.fromEntries(chosen.map((n) => [n, manifest.mailboxes[n]]));
+    const ok = reports.filter((r) => r.error === undefined);
+    for (const line of nextSteps(selected, copies.filter((c) => ok.some((r) => r.mailbox === c.mailbox && r.broker === c.broker)))) out(line);
+    return code;
   } catch (e) {
-    console.error(e instanceof ManifestError ? e.message : (e as Error).message);
+    err(message(e));
     return 1;
   }
+}
+
+export async function main(argv: string[]): Promise<number> {
+  let args: Args;
+  try {
+    args = parseArgs(argv);
+  } catch (e) {
+    console.error(message(e));
+    return 2;
+  }
+  return execute(args, realDeps(args, manifestPath(args, process.env, repoRoot)), console.log, console.error);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -49,7 +49,7 @@ export async function kvNamespaces(run: Run, cwd: string): Promise<Map<string, s
 }
 
 export async function createKv(run: Run, cwd: string, title: string): Promise<string> {
-  const r = await run(["kv", "namespace", "create", title], { cwd });
+  const r = await run(["kv", "namespace", "create", title, "--update-config=false"], { cwd });
   if (r.code !== 0) throw new Error(`wrangler kv namespace create ${title} failed (exit ${r.code})\n${tail(r.stdout + r.stderr)}`);
   const id = (await kvNamespaces(run, cwd)).get(title);
   if (id === undefined) throw new Error(`created KV namespace "${title}" but it is not in the listing`);
@@ -60,10 +60,10 @@ export async function createKv(run: Run, cwd: string, title: string): Promise<st
 export async function secretNames(run: Run, cwd: string, worker: string): Promise<string[] | null> {
   const r = await run(["secret", "list", "--name", worker], { cwd });
   const output = r.stdout + r.stderr;
-  if (output.includes("not found")) return null;
   const items = r.code === 0 ? (jsonArray(r.stdout) as SecretItem[] | undefined) : undefined;
-  if (!items) throw new Error(`wrangler secret list --name ${worker}: unexpected output (exit ${r.code})\n${tail(output)}`);
-  return items.map((i) => i.name);
+  if (items) return items.map((i) => i.name);
+  if (output.includes(`Worker "${worker}" not found`)) return null;
+  throw new Error(`wrangler secret list --name ${worker}: unexpected output (exit ${r.code})\n${tail(output)}`);
 }
 
 /** Repeats once when the output contains "10007" (the Worker was only just created). Returns the Version ID if printed. */
