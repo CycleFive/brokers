@@ -249,11 +249,26 @@ export interface Template {
   dir: string; // absolute path of that directory
   name: string; // the example's "name"
   vars: Record<string, string>; // the example's vars, in file order
-  secrets: string[]; // the example's secrets.required
+  secrets: string[]; // package.json's broker.secrets
   config: Record<string, unknown>; // the whole parsed example
 }
 
-export function readTemplate(broker: string, dir: string, text: string): Template {
+function readSecretNames(broker: string, packageJson: string): string[] {
+  const where = `brokers/${broker}/package.json`;
+  let pkg: unknown;
+  try {
+    pkg = JSON.parse(packageJson);
+  } catch (e) {
+    throw new Error(`${where}: ${(e as Error).message}`);
+  }
+  const secrets = isObj(pkg) && isObj(pkg.broker) ? pkg.broker.secrets : undefined;
+  if (!Array.isArray(secrets) || !secrets.every((s) => typeof s === "string")) {
+    throw new Error(`${where} lacks "broker.secrets" (an array of strings)`);
+  }
+  return secrets as string[];
+}
+
+export function readTemplate(broker: string, dir: string, text: string, packageJson: string): Template {
   const where = `brokers/${broker}/wrangler.example.jsonc`;
   const errors: ParseError[] = [];
   const raw: unknown = parse(text, errors, { allowTrailingComma: true });
@@ -272,12 +287,14 @@ export function readTemplate(broker: string, dir: string, text: string): Templat
       else missing.push(`"vars.${k}" as a string`);
     }
   }
-  const required = isObj(raw.secrets) ? raw.secrets.required : undefined;
-  if (!Array.isArray(required) || !required.every((s) => typeof s === "string")) missing.push(`"secrets.required" (an array of strings)`);
+  if ("secrets" in raw) {
+    throw new Error(`${where} must not have "secrets": wrangler would refuse the first deploy; declare them in package.json`);
+  }
   if (!Array.isArray(raw.kv_namespaces) || raw.kv_namespaces.length !== 1) missing.push(`"kv_namespaces" with exactly one entry`);
   if (missing.length > 0) throw new Error(`${where} lacks ${missing.join(", ")}`);
 
-  return { broker, dir, name: raw.name as string, vars, secrets: required as string[], config: raw };
+  const secrets = readSecretNames(broker, packageJson);
+  return { broker, dir, name: raw.name as string, vars, secrets, config: raw };
 }
 
 export function loadTemplates(repoRoot: string): Template[] {
@@ -293,7 +310,7 @@ export function loadTemplates(repoRoot: string): Template[] {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw e;
     }
-    out.push(readTemplate(entry.name, dir, text));
+    out.push(readTemplate(entry.name, dir, text, readFileSync(join(dir, "package.json"), "utf8")));
   }
   return out.sort((a, b) => (a.broker < b.broker ? -1 : a.broker > b.broker ? 1 : 0));
 }

@@ -78,8 +78,9 @@ Check a manifest without touching Cloudflare: `npm run mailbox -- check --manife
    broker's README describes in its Setup step 1.
 2. Add the mailbox to `mailboxes.jsonc`, with each broker's `vars` and, if agents read its
    mail, a `mail` entry. Run `npm run mailbox -- check` to see the names and URLs it will use.
-3. Run `npm run mailbox -- deploy <name> --mailroom`. This deploys the named mailbox's
-   brokers, then mailroom with every mailbox's entry.
+3. Run `npm run mailbox -- deploy <name> --mailroom`. The first deploy creates each
+   Worker, then `deploy` asks for each of its secrets. After the brokers it deploys
+   mailroom with every mailbox's entry.
 4. Type the secrets when `deploy` asks for them.
 5. Enter the redirect URLs `deploy` prints on the Discord application and the GitHub App.
 6. Connect the printed `/mcp` addresses as connectors in the agent's client.
@@ -112,8 +113,10 @@ Make a directory `brokers/<name>` with:
 
 - `package.json` and `tsconfig.json`, copied from an existing broker
 - `vitest.config.ts`
-- `wrangler.example.jsonc`, with `vars`, one `kv_namespaces` entry and `secrets.required`
-  listing the secrets the mailbox tool must find set
+- `wrangler.example.jsonc`, with `vars` and one `kv_namespaces` entry, and no `secrets` key
+- in `package.json`, `"broker": { "secrets": [...] }` naming the secrets the mailbox tool must
+  find set (wrangler refuses to deploy a config that requires secrets before they exist, and a
+  new Worker cannot have secrets until it is deployed, so they cannot go in the example)
 - `src/index.ts`, which calls `createBroker`
 
 The mailbox tool and CI find the new broker with no change. Mailroom does not read its

@@ -5,17 +5,22 @@ import { ManifestError, loadTemplates, parseManifest, readTemplate, resolveCopie
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
-function example(name: string, vars: Record<string, string>, secrets: string[]): string {
-  return JSON.stringify({ name, vars, secrets: { required: secrets }, kv_namespaces: [{ binding: "OAUTH_KV", id: "<id>" }] });
+function example(name: string, vars: Record<string, string>): string {
+  return JSON.stringify({ name, vars, kv_namespaces: [{ binding: "OAUTH_KV", id: "<id>" }] });
+}
+
+function pkg(secrets: string[]): string {
+  return JSON.stringify({ broker: { secrets } });
 }
 
 const templates = [
   readTemplate(
     "alpha",
     "/repo/brokers/alpha",
-    example("alpha-broker", { PUBLIC_URL: "https://x", ALPHA_ID: "<id>", ALPHA_OPT: "" }, ["ALPHA_TOKEN"]),
+    example("alpha-broker", { PUBLIC_URL: "https://x", ALPHA_ID: "<id>", ALPHA_OPT: "" }),
+    pkg(["ALPHA_TOKEN"]),
   ),
-  readTemplate("beta", "/repo/brokers/beta", example("beta-broker", { PUBLIC_URL: "https://x", BETA_ID: "<id>" }, ["BETA_KEY"])),
+  readTemplate("beta", "/repo/brokers/beta", example("beta-broker", { PUBLIC_URL: "https://x", BETA_ID: "<id>" }), pkg(["BETA_KEY"])),
 ];
 
 function problemsOf(fn: () => unknown): string[] {
@@ -180,18 +185,30 @@ describe("parseManifest", () => {
 });
 
 describe("templates", () => {
-  it("readTemplate names what an example lacks", () => {
-    const noSecrets = JSON.stringify({ name: "n", vars: { PUBLIC_URL: "" }, kv_namespaces: [{ binding: "K", id: "i" }] });
-    expect(() => readTemplate("alpha", "/d", noSecrets)).toThrow(/alpha.*secrets\.required/);
+  it("reads a broker's secret names from its package.json", () => {
+    const t = readTemplate("alpha", "/d", example("n", { PUBLIC_URL: "" }), pkg(["A", "B"]));
+    expect(t.secrets).toEqual(["A", "B"]);
+    expect(readTemplate("alpha", "/d", example("n", { PUBLIC_URL: "" }), pkg([])).secrets).toEqual([]);
+  });
+
+  it("readTemplate names what a broker lacks", () => {
+    const ok = example("n", { PUBLIC_URL: "" });
+    for (const bad of ["{}", JSON.stringify({ broker: {} }), JSON.stringify({ broker: { secrets: "A" } }), JSON.stringify({ broker: { secrets: [1] } })]) {
+      expect(() => readTemplate("alpha", "/d", ok, bad)).toThrow(/brokers\/alpha\/package\.json.*broker\.secrets/);
+    }
     const twoKv = JSON.stringify({
       name: "n",
       vars: { PUBLIC_URL: "" },
-      secrets: { required: [] },
       kv_namespaces: [{ binding: "K", id: "i" }, { binding: "L", id: "j" }],
     });
-    expect(() => readTemplate("alpha", "/d", twoKv)).toThrow(/alpha.*kv_namespaces/);
-    const noPublicUrl = JSON.stringify({ name: "n", vars: {}, secrets: { required: [] }, kv_namespaces: [{ binding: "K", id: "i" }] });
-    expect(() => readTemplate("alpha", "/d", noPublicUrl)).toThrow(/PUBLIC_URL/);
+    expect(() => readTemplate("alpha", "/d", twoKv, pkg([]))).toThrow(/alpha.*kv_namespaces/);
+    const noPublicUrl = JSON.stringify({ name: "n", vars: {}, kv_namespaces: [{ binding: "K", id: "i" }] });
+    expect(() => readTemplate("alpha", "/d", noPublicUrl, pkg([]))).toThrow(/PUBLIC_URL/);
+  });
+
+  it("refuses an example that declares secrets to wrangler", () => {
+    const withSecrets = JSON.stringify({ name: "n", vars: { PUBLIC_URL: "" }, secrets: { required: [] }, kv_namespaces: [{ binding: "K", id: "i" }] });
+    expect(() => readTemplate("alpha", "/d", withSecrets, pkg([]))).toThrow(/must not have "secrets"/);
   });
 
   it("loadTemplates reads this repository's brokers", () => {

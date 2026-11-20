@@ -93,7 +93,7 @@ npx wrangler login
 npx wrangler kv namespace create OAUTH_KV
 ```
 
-`wrangler.jsonc` is git-ignored: it holds your own IDs and URL, no secrets. The example's `secrets.required` lists the secrets step 4 sets; the mailbox tool checks for them. Paste the KV
+`wrangler.jsonc` is git-ignored: it holds your own IDs and URL, no secrets. The secrets step 4 sets are listed under `broker.secrets` in this broker's `package.json`; the mailbox tool checks for them. Paste the KV
 id into it, then fill in `vars`: `GITHUB_APP_CLIENT_ID`,
 `GITHUB_INSTALLATION_ID`, `ALLOWED_GITHUB_USERS`, optionally `GITHUB_DEFAULT_OWNER`. Set `DISABLE_CIMD` to `"true"` only if Claude cannot
 fetch the Worker's client metadata document and should register itself instead (default: empty).
