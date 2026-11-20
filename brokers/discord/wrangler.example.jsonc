@@ -37,6 +37,9 @@
   },
   // Secrets, set with `wrangler secret put` (never in this file):
   //   DISCORD_BOT_TOKEN, DISCORD_CLIENT_SECRET
+  "secrets": {
+    "required": ["DISCORD_BOT_TOKEN", "DISCORD_CLIENT_SECRET"]
+  },
   "observability": {
     "enabled": true
   }
